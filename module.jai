@@ -83,13 +83,19 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     }
     // p is inside the polygon if it is left of
     // the directed edge from v[low] to v[high]
-    return is_ccw(polygon[low], polygon[high], point);
+    final: Triangle2 = ---;
+    final.a = polygon[low];
+    final.b = polygon[high];
+    final.c = point;
+    return is_ccw(final);
 }
 
 // sphere stuff
 // Determine whether plane p intersects sphere s
 intersection :: (sphere: Sphere, ray: Ray3) -> Vector3, bool {
-    return interesction(sphere, ray, 0);
+    t: float = 0;
+    vector, value := intersection(sphere, ray, *t);
+    return vector, value;
 }
 
 intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
@@ -103,16 +109,16 @@ intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
     }
     discr := b * b - c;
     // A negative discriminant corresponds to ray missing sphere
-    if (discr < 0) {
+    if discr < 0 {
         return .{0, 0, 0}, false;
     }
     // Ray now found to intersect sphere, compute smallest t value of intersection
-    t = -b - sqrt(discr);
+    << t = -b - sqrt(discr);
     // If t is negative, ray started inside sphere so clamp t to zero
-    if t < 0 {
-        t = 0;
+    if << t < 0 {
+        << t = 0;
     }
-    return ray.p + t * ray.dir, true;
+    return ray.p + << t * ray.dir, true;
 }
 
 intersects :: (sphere: Sphere, ray: Ray3) -> bool {
@@ -164,11 +170,17 @@ intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     denom := d11 * d22 - d12 * d12;
     k1 := (plane1.d * d22 - plane2.d * d12) / denom;
     k2 := (plane2.d * d11 - plane1.d * d12) / denom;
-    return .{k1 * plane1.n + k2 * plane2.n, d}, true;
+
+    ray: Ray3 = ---;
+    ray.p = k1 * plane1.n + k2 * plane2.n;
+    ray.dir = d;
+    return ray, true;
 }
 
 intersection :: (plane: Plane3, line: Line3) -> Vector3, bool {
-    return intersection(plane, line, 0);
+    t: float = 0;
+    point, value := intersection(plane, line, *t);
+    return point, value;
 }
 
 intersection :: (plane: Plane3, line: Line3, t: *float) -> Vector3, bool {
@@ -176,17 +188,18 @@ intersection :: (plane: Plane3, line: Line3, t: *float) -> Vector3, bool {
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    t = (plane.d - dot(plane.n, a)) / dot(plane.n, ab);
+    << t = (plane.d - dot(plane.n, line.p1)) / dot(plane.n, ab);
     // If t in [0..1] compute and return intersection point
-    if t >= 0 && t <= 1 {
-        return line.p1 + t * ab, true;
+    if << t >= 0 && << t <= 1 {
+        return line.p1 + << t * ab, true;
     }
     // Else no intersection
     return .{0, 0, 0}, false;
 }
 
 intersects :: (plane: Plane3, line: Line3) -> bool {
-    return intersects(plane, line, 0);
+    t: float = 0;
+    return intersects(plane, line, *t);
 }
 
 intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
@@ -194,9 +207,9 @@ intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    t = (plane.d - dot(plane.n, a)) / dot(plane.n, ab);
+    << t = (plane.d - dot(plane.n, line.p1)) / dot(plane.n, ab);
     // If t in [0..1] compute and return intersection point
-    if t >= 0 && t <= 1 {
+    if << t >= 0 && << t <= 1 {
         return true;
     }
     // Else no intersection
@@ -211,33 +224,39 @@ inside :: (plane: Plane3, sphere: Sphere) -> bool {
 }
 
 nearest_point :: (plane: Plane3, point: Vector3) -> Vector3 {
-    t := (dot(plane.n, point) - plane.d) / dot(plane.n, plane.n);
-
+    // p127
+    t := dot(plane.n, point) - plane.d;
     return point - t * plane.n;
 }
 
 distance :: (plane: Plane3, point: Vector3) -> float {
-    return (dot(p.n, point) - plane.d) / dot(p.n, p.n);
+    // TODO ensure plane.n is normalized
+    return dot(point, plane.n) - plane.d;
+    // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
 
 // aabb stuff
 intersection :: (aabb: AABB2, ray: Ray2) -> Vector2, bool {
-    return interesction(aabb, ray, 0);
+    t: float = 0;
+    vector, value := intersection(aabb, ray, *t);
+    return vector, value;
 }
 
 intersection :: (aabb: AABB3, ray: Ray3) -> Vector3, bool {
-    return interesction(aabb, ray, 0);
+    t: float = 0;
+    vector, value := intersection(aabb, ray, *t);
+    return vector, value;
 }
 
 intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
     // p180
-    t = 0; // set to -FLT_MAX to get first hit on line
+    << t = 0; // set to -FLT_MAX to get first hit on line
     tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
     // For all three slabs
     if abs(ray.dir.x) < EPSILON {
         // Ray is parallel to slab. No hit if origin not within slab
         if ray.p.x < aabb.lower.x || ray.p.x > aabb.upper.x {
-            return .{0, 0, 0}, false;
+            return .{0, 0}, false;
         }
     } else {
         // Compute intersection t value of ray with near and far plane of slab
@@ -249,21 +268,21 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
             t1, t2 = swap(t1, t2);
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > t {
-            t = t1;
+        if t1 > << t {
+            << t = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if t > tmax {
-            return 0;
+        if << t > tmax {
+            return .{0, 0}, false;
         }
     }
     if abs(ray.dir.y) < EPSILON {
         // Ray is parallel to slab. No hit if origin not within slab
         if ray.p.y < aabb.lower.y || ray.p.y > aabb.upper.y {
-            return .{0, 0, 0}, false;
+            return .{0, 0}, false;
         }
     } else {
         // Compute intersection t value of ray with near and far plane of slab
@@ -275,24 +294,24 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
             t1, t2 = swap(t1, t2);
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > t {
-            t = t1;
+        if t1 > << t {
+            << t = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if t > tmax {
-            return 0;
+        if << t > tmax {
+            return .{0, 0}, false;
         }
     }
     // Ray intersects all 3 slabs. Return point (q) and intersection t value (tmin)
-    return ray.p + ray.dir * t, true;
+    return ray.p + ray.dir * << t, true;
 }
 
 intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
     // p180
-    t = 0; // set to -FLT_MAX to get first hit on line
+    << t = 0; // set to -FLT_MAX to get first hit on line
     tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
     // For all three slabs
     if abs(ray.dir.x) < EPSILON {
@@ -310,15 +329,15 @@ intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
             t1, t2 = swap(t1, t2);
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > t {
-            t = t1;
+        if t1 > << t {
+            << t = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if t > tmax {
-            return 0;
+        if << t > tmax {
+            return .{0, 0, 0}, false;
         }
     }
     if abs(ray.dir.y) < EPSILON {
@@ -336,15 +355,15 @@ intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
             t1, t2 = swap(t1, t2);
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > t {
-            t = t1;
+        if t1 > << t {
+            << t = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if t > tmax {
-            return 0;
+        if << t > tmax {
+            return .{0, 0, 0}, false;
         }
     }
     if abs(ray.dir.z) < EPSILON {
@@ -362,19 +381,19 @@ intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
             t1, t2 = swap(t1, t2);
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > t {
-            t = t1;
+        if t1 > << t {
+            << t = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if t > tmax {
-            return 0;
+        if << t > tmax {
+            return .{0, 0, 0}, false;
         }
     }
     // Ray intersects all 3 slabs. Return point (q) and intersection t value (tmin)
-    return ray.p + ray.dir * t, true;
+    return ray.p + ray.dir * << t, true;
 }
 
 intersects :: (aabb: AABB2, line: Line2) -> bool {
@@ -586,8 +605,8 @@ intersects :: (aabb: AABB2, ray: Ray2) -> bool {
         maxy = t;
     }
 
-    minv := max(max(minx, miny), minz);
-    maxv := min(min(maxx, maxy), maxz);
+    minv := max(minx, miny);
+    maxv := min(maxx, maxy);
 
     return maxv >= 0 && maxv >= minv;
 }
@@ -625,68 +644,6 @@ intersects :: (aabb: AABB3, ray: Ray3) -> bool {
     maxv := min(min(maxx, maxy), maxz);
 
     return maxv >= 0 && maxv >= minv;
-}
-
-intersects :: (aabb: AABB2, line: Line2) -> bool {
-    // Christer Ericson, p183
-    e := aabb.upper - aabb.lower;
-    d := segment.p2 - segment.p1;
-    m := segment.p1 + segment.p2 - aabb.lower - aabb.upper;
-    
-    adx := abs(d.x);
-    if abs(m.x) > e.x + adx {
-        return false;
-    }
-    
-    ady := abs(d.y);
-    if abs(m.y) > e.y + ady {
-        return false;
-    }
-
-    adx += EPSILON;
-    ady += EPSILON;
-    if abs(m.x * d.y - m.y * d.x) > e.x * ady + e.y * adx {
-        return false;
-    }
-
-    return true;
-}
-
-intersects :: (aabb: AABB3, line: Line3) -> bool {
-    // Christer Ericson, p183
-    e := aabb.upper - aabb.lower;
-    d := segment.p2 - segment.p1;
-    m := segment.p1 + segment.p2 - aabb.lower - aabb.upper;
-    
-    adx := abs(d.x);
-    if abs(m.x) > e.x + adx {
-        return false;
-    }
-    
-    ady := abs(d.y);
-    if abs(m.y) > e.y + ady {
-        return false;
-    }
-
-    adz := abs(d.z);
-    if abs(m.z) > e.z + adz {
-        return false;
-    }
-
-    adx += EPSILON;
-    ady += EPSILON;
-    adz += EPSILON;
-    if abs(m.y * d.z - m.z * d.y) > e.y * adz + e.z * ady {
-        return false;
-    }
-    if abs(m.z * d.x - m.x * d.z) > e.x * adz + e.z * adx {
-        return false;
-    }
-    if abs(m.x * d.y - m.y * d.x) > e.x * ady + e.y * adx {
-        return false;
-    }
-
-    return true;
 }
 
 merge :: (a: AABB2, b: AABB2) -> AABB2 {
@@ -751,11 +708,11 @@ intersects :: (triangle: Triangle2, point: Vector2) -> bool {
     // p206
     // Test if 2D point P lies inside 2D triangle ABC
     // If P to the right of AB then outside triangle
-    if cross(p - a, b - a) < 0 return false;
+    if cross(point - triangle.a, triangle.b - triangle.a) < 0 return false;
     // If P to the right of BC then outside triangle
-    if cross(p - b, c - b) < 0 return false;
+    if cross(point - triangle.b, triangle.c - triangle.b) < 0 return false;
     // If P to the right of CA then outside triangle
-    if cross(p - c, a - c) < 0 return false;
+    if cross(point - triangle.c, triangle.a - triangle.c) < 0 return false;
     // Otherwise P must be in (or on) the triangle
     return true;
 }
@@ -814,51 +771,51 @@ nearest_point :: (triangle: Triangle2, point: Vector2) -> Vector2 {
 nearest_point :: (triangle: Triangle3, point: Vector3) -> Vector3 {
     // p141
     // Check if P in vertex region outside A
-    ab := b - a;
-    ac := c - a;
-    ap := p - a;
+    ab := triangle.b - triangle.a;
+    ac := triangle.c - triangle.a;
+    ap := point - triangle.a;
     d1 := dot(ab, ap);
     d2 := dot(ac, ap);
     if d1 <= 0 && d2 <= 0 {
-        return a; // barycentric coordinates (1,0,0)
+        return triangle.a; // barycentric coordinates (1,0,0)
     }
     // Check if P in vertex region outside B
-    bp := p - b;
+    bp := point - triangle.b;
     d3 := dot(ab, bp);
     d4 := dot(ac, bp);
     if d3 >= 0 && d4 <= d3 {
-        return b; // barycentric coordinates (0,1,0)
+        return triangle.b; // barycentric coordinates (0,1,0)
     }
     // Check if P in edge region of AB, if so return projection of P onto AB
     vc := d1 * d4 - d3 * d2;
     if vc <= 0 && d1 >= 0 && d3 <= 0 {
         v := d1 / (d1 - d3);
-        return a + v * ab; // barycentric coordinates (1-v,v,0)
+        return triangle.a + v * ab; // barycentric coordinates (1-v,v,0)
     }
     // Check if P in vertex region outside C
-    cp := p - c;
+    cp := point - triangle.c;
     d5 := dot(ab, cp);
     d6 := dot(ac, cp);
     if d6 >= 0 && d5 <= d6 {
-        return c; // barycentric coordinates (0,0,1)
+        return triangle.c; // barycentric coordinates (0,0,1)
     }
     // Check if P in edge region of AC, if so return projection of P onto AC
     vb := d5 * d2 - d1 * d6;
     if vb <= 0 && d2 >= 0 && d6 <= 0 {
         w := d2 / (d2 - d6);
-        return a + w * ac; // barycentric coordinates (1-w,0,w)
+        return triangle.a + w * ac; // barycentric coordinates (1-w,0,w)
     }
     // Check if P in edge region of BC, if so return projection of P onto BC
     va := d3 * d6 - d5 * d4;
     if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
         w := (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        return b + w * (c - b); // barycentric coordinates (0,1-w,w)
+        return triangle.b + w * (triangle.c - triangle.b); // barycentric coordinates (0,1-w,w)
     }
     // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
     denom := 1 / (va + vb + vc);
     v := vb * denom;
     w := vc * denom;
-    return a + ab * v + ac * w; // = u*a + v*b + w*c, u = va * denom = 1-v-w
+    return triangle.a + ab * v + ac * w; // = u*a + v*b + w*c, u = va * denom = 1-v-w
 }
 
 area_signed :: (triangle: Triangle2) -> float {
@@ -892,8 +849,137 @@ distance :: (ray: Ray3, point: Vector3) -> float {
 }
 
 // line stuff
+get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
+    // modified bresenham’s to handle reverse lines and vertical lines
+    x1: int = cast(int) round(line.p1.x);
+    y1: int = cast(int) round(line.p1.y);
+    x2: int = cast(int) round(line.p2.x);
+    y2: int = cast(int) round(line.p2.y);
+
+    dx := x2 - x1;
+    dy := y2 - y1;
+
+    pixels: [..] [2] int;
+    if abs(dx) >= abs(dy) {
+        count := abs(dx) + ifx inclusive then 1 else 0;
+        array_reserve(*pixels, count);
+
+        x := x1;
+        y := y1;
+
+        if x2 > x1 {
+            p := 2 * dy - dx;
+            while x < x2 {
+                if p >= 0 {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    y = y + 1;
+                    p = p + 2 * dy - 2 * dx;
+                } else {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    p = p + 2 * dy;
+                }
+
+                x = x + 1;
+            }
+        } else {
+            p := -2 * dy + dx;
+            while x > x2 {
+                if p >= 0 {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    y = y - 1;
+                    p = p - 2 * dy + 2 * dx;
+                } else {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    p = p - 2 * dy;
+                }
+
+                x = x - 1;
+            }
+        }
+    } else {
+        count := abs(dy) + ifx inclusive then 1 else 0;
+        array_reserve(*pixels, count);
+
+        x := x1;
+        y := y1;
+
+        if y2 > y1 {
+            p := 2 * dx - dy;
+            while y < y2 {
+                if p >= 0 {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    x = x + 1;
+                    p = p + 2 * dx - 2 * dy;
+                } else {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    p = p + 2 * dx;
+                }
+
+                y = y + 1;
+            }
+        } else {
+            p := -2 * dx + dy;
+            while y > y2 {
+                if p >= 0 {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    x = x - 1;
+                    p = p - 2 * dx + 2 * dy;
+                } else {
+                    point: [2] int;
+                    point[0] = x;
+                    point[1] = y;
+                    array_add(*pixels, point);
+
+                    p = p - 2 * dx;
+                }
+
+                y = y - 1;
+            }
+        }
+    }
+
+    if inclusive {
+        point: [2] int;
+        point[0] = x2;
+        point[1] = y2;
+        array_add(*pixels, point);
+    }
+
+    return pixels;
+}
+
 intersection :: (line1: Line2, line2: Line2) -> Vector2, bool {
-    return intersection(line1, line2, 0);
+    t: float = 0;
+    vector, value := intersection(line1, line2, *t);
+    return vector, value;
 }
 
 // returns t along line1 of the intersection
@@ -932,12 +1018,8 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
             // t = h1 / (h1 - h2) = (b*h1/2) / (b*h1/2 - b*h2/2) = a3 / (a3 - a4),
             // where b (the base of the triangles cda and cdb, i.e., the length
             // of cd) cancels out.
-            t = a3 / (a3 - a4);
-            p = line1.p1 + t * (line1.p2 - line1.p1);
-
-            point: Vector2 = ---;
-            point.x = line1.p1.x + (line1.p2.x - line1.p1.x) * t;
-            point.y = line1.p1.y + (line1.p2.y - line1.p1.y) * t;
+            << t = a3 / (a3 - a4);
+            point := line1.p1 + << t * (line1.p2 - line1.p1);
 
             return point, true;
         }
@@ -948,39 +1030,41 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
 }
 
 nearest_point :: (line: Line2, point: Vector2) -> Vector2 {
-    return nearest_point(line, point, 0);
+    t: float = 0;
+    return nearest_point(line, point, *t);
 }
 
 nearest_point :: (line: Line3, point: Vector3) -> Vector3 {
-    return nearest_point(line, point, 0);
+    t: float = 0;
+    return nearest_point(line, point, *t);
 }
 
 nearest_point :: (line: Line2, point: Vector2, t: *float) -> Vector2 {
     // p128
     ab := line.p2 - line.p1;
-    t = dot(point - line.p1, ab) / dot(ab, ab);
-    if t < 0.0 {
-        t = 0.0;
+    << t = dot(point - line.p1, ab) / dot(ab, ab);
+    if << t < 0.0 {
+        << t = 0.0;
     }
-    if t > 1.0 {
-        t = 1.0;
+    if << t > 1.0 {
+        << t = 1.0;
     }
 
-    return line.p1 + t * ab;
+    return line.p1 + << t * ab;
 }
 
 nearest_point :: (line: Line3, point: Vector3, t: *float) -> Vector3 {
     // p128
     ab := line.p2 - line.p1;
-    t = dot(point - line.p1, ab) / dot(ab, ab);
-    if t < 0.0 {
-        t = 0.0;
+    << t = dot(point - line.p1, ab) / dot(ab, ab);
+    if << t < 0.0 {
+        << t = 0.0;
     }
-    if t > 1.0 {
-        t = 1.0;
+    if << t > 1.0 {
+        << t = 1.0;
     }
 
-    return line.p1 + t * ab;
+    return line.p1 + << t * ab;
 }
 
 distance :: (line: Line2, point: Vector2) -> float {
@@ -993,9 +1077,9 @@ distance :: (line: Line3, point: Vector3) -> float {
 
 distance_squared :: (line: Line2, point: Vector2) -> float {
     // p130
-    ab := b - a;
-    ac := c - a;
-    bc := c - b;
+    ab := line.p2 - line.p1;
+    ac := point - line.p1;
+    bc := point - line.p2;
     
     e := dot(ac, ab);
     if e <= 0 {
@@ -1012,9 +1096,9 @@ distance_squared :: (line: Line2, point: Vector2) -> float {
 
 distance_squared :: (line: Line3, point: Vector3) -> float {
     // p130
-    ab := b - a;
-    ac := c - a;
-    bc := c - b;
+    ab := line.p2 - line.p1;
+    ac := point - line.p1;
+    bc := point - line.p2;
     
     e := dot(ac, ab);
     if e <= 0 {
@@ -1030,11 +1114,25 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
 }
 
 // vector stuff
+min :: (a: Vector2, b: Vector2) -> Vector2 {
+    vector: Vector2 = ---;
+    vector.x = min(a.x, b.x);
+    vector.y = min(a.y, b.y);
+    return vector;
+}
+
 min :: (a: Vector3, b: Vector3) -> Vector3 {
     vector: Vector3 = ---;
     vector.x = min(a.x, b.x);
     vector.y = min(a.y, b.y);
     vector.z = min(a.z, b.z);
+    return vector;
+}
+
+max :: (a: Vector2, b: Vector2) -> Vector2 {
+    vector: Vector2 = ---;
+    vector.x = max(a.x, b.x);
+    vector.y = max(a.y, b.y);
     return vector;
 }
 
@@ -1051,35 +1149,52 @@ cross :: (a: Vector2, b: Vector2) -> float {
     return a.y * b.x - a.x * b.y;
 }
 
-// interpolations
-hermite :: (point: [2]Vector2, tangents: [2]Vector2, t: float) -> Vector2 {
+hermite :: (points: [2]Vector2, tangents: [2]Vector2, t: float) -> Vector2 {
     n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2: float = t * t * t - 2.0 * t * t + t;
     n3: float = -2.0 * t * t * t + 3.0 * t * t;
     n4: float = t * t * t - t * t;
 
     vector: Vector2 = ---;
-    vector.x = n1 * points[0].x + n2 * tangentials[0].x + n3 * points[1].x + n4 * tangentials[1].x;
-    vector.y = n1 * points[0].y + n2 * tangentials[0].y + n3 * points[1].y + n4 * tangentials[1].y;
+    vector.x = n1 * points[0].x + n2 * tangents[0].x + n3 * points[1].x + n4 * tangents[1].x;
+    vector.y = n1 * points[0].y + n2 * tangents[0].y + n3 * points[1].y + n4 * tangents[1].y;
 
     return vector;
 }
 
-hermite :: (point: [2]Vector3, tangents: [2]Vector3, t: float) -> Vector3 {
+hermite :: (points: [2]Vector3, tangents: [2]Vector3, t: float) -> Vector3 {
     n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2: float = t * t * t - 2.0 * t * t + t;
     n3: float = -2.0 * t * t * t + 3.0 * t * t;
     n4: float = t * t * t - t * t;
 
     vector: Vector3 = ---;
-    vector.x = n1 * points[0].x + n2 * tangentials[0].x + n3 * points[1].x + n4 * tangentials[1].x;
-    vector.y = n1 * points[0].y + n2 * tangentials[0].y + n3 * points[1].y + n4 * tangentials[1].y;
-    vector.z = n1 * points[0].z + n2 * tangentials[0].z + n3 * points[1].z + n4 * tangentials[1].z;
+    vector.x = n1 * points[0].x + n2 * tangents[0].x + n3 * points[1].x + n4 * tangents[1].x;
+    vector.y = n1 * points[0].y + n2 * tangents[0].y + n3 * points[1].y + n4 * tangents[1].y;
+    vector.z = n1 * points[0].z + n2 * tangents[0].z + n3 * points[1].z + n4 * tangents[1].z;
 
     return vector;
 }
 
+// float stuff
+round :: (value: float) -> float {
+    if value < 0.0 {
+        return floor(value - 0.5);
+    }
+
+    return floor(value + 0.5);
+}
+
+round :: (value: float64) -> float64 {
+    if value < 0.0 {
+        return floor(value - 0.5);
+    }
+
+    return floor(value + 0.5);
+}
+
 #scope_file
+#import "Basic";
 #import "Math";
 
 EPSILON :: 0.000001;
