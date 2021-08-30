@@ -1,3 +1,5 @@
+// page numbers come from "Real Time Collision Detection by Christer Ericson"
+
 Sphere :: struct {
     c: Vector3;
     r: float;
@@ -13,16 +15,16 @@ AABB3 :: struct {
     upper: Vector3;
 }
 
-Triangle3 :: struct {
-    a: Vector3;
-    b: Vector3;
-    c: Vector3;
-}
-
 Triangle2 :: struct {
     a: Vector2;
     b: Vector2;
     c: Vector2;
+}
+
+Triangle3 :: struct {
+    a: Vector3;
+    b: Vector3;
+    c: Vector3;
 }
 
 Ray2 :: struct {
@@ -48,6 +50,8 @@ Line3 :: struct {
 // convex polygon stuff
 intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     // p202
+    #if DEBUG validate_ccw(polygon);
+
     // Test if point p lies inside ccw-specified convex n-gon given by vertices v[]
     // Do binary search over polygon vertices to find the fan triangle
     // (v[0], v[low], v[high]) the point p lies within the near sides of
@@ -67,7 +71,6 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     
     while low + 1 < high {
         mid = (low + high) / 2;
-        triangle: Triangle2 = ---;
         triangle.a = polygon[0];
         triangle.b = polygon[mid];
         triangle.c = point;
@@ -100,6 +103,8 @@ intersection :: (sphere: Sphere, ray: Ray3) -> Vector3, bool {
 
 intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
     // p178
+    #if DEBUG validate_unit_vector(ray.dir);
+
     m := ray.p - sphere.c;
     b := dot(m, ray.dir);
     c := dot(m, m) - sphere.r * sphere.r;
@@ -123,6 +128,8 @@ intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
 
 intersects :: (sphere: Sphere, ray: Ray3) -> bool {
     // p179
+    #if DEBUG validate_unit_vector(ray.dir);
+    
     m := ray.p - sphere.c;
     c := dot(m, m) - sphere.r * sphere.r;
     // If there is definitely at least one real root, there must be an intersection
@@ -145,6 +152,8 @@ intersects :: (sphere: Sphere, ray: Ray3) -> bool {
 
 intersects :: (sphere: Sphere, plane: Plane3) -> bool {
     // p160
+    #if DEBUG validate_unit_vector(plane.n);
+
     // for a point gives the signed distance of the point to the plane
     dist := dot(sphere.c, plane.n) - plane.d;
     // If sphere center within +/-radius from plane, plane intersects sphere
@@ -154,6 +163,9 @@ intersects :: (sphere: Sphere, plane: Plane3) -> bool {
 // plane stuff
 intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     // p208
+    #if DEBUG validate_unit_vector(plane1.n);
+    #if DEBUG validate_unit_vector(plane2.n);
+
     // Given planes p1 and p2, compute line L = p+t*d of their intersection.
     // Return 0 if no such line exists
     // Compute direction of intersection line
@@ -185,6 +197,8 @@ intersection :: (plane: Plane3, line: Line3) -> Vector3, bool {
 
 intersection :: (plane: Plane3, line: Line3, t: *float) -> Vector3, bool {
     // p176
+    #if DEBUG validate_unit_vector(plane.n);
+
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
@@ -204,6 +218,8 @@ intersects :: (plane: Plane3, line: Line3) -> bool {
 
 intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
     // p176
+    #if DEBUG validate_unit_vector(plane.n);
+
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
@@ -219,18 +235,23 @@ intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
 // Determine whether sphere s is fully behind (inside negative halfspace of) plane p
 inside :: (plane: Plane3, sphere: Sphere) -> bool {
     // p161
+    #if DEBUG validate_unit_vector(plane.n);
+
     dist := dot(sphere.c, plane.n) - plane.d;
     return dist < -sphere.r;
 }
 
 nearest_point :: (plane: Plane3, point: Vector3) -> Vector3 {
     // p127
+    #if DEBUG validate_unit_vector(plane.n);
+    
     t := dot(plane.n, point) - plane.d;
     return point - t * plane.n;
 }
 
 distance :: (plane: Plane3, point: Vector3) -> float {
-    // TODO ensure plane.n is normalized
+    #if DEBUG validate_unit_vector(plane.n);
+
     return dot(point, plane.n) - plane.d;
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
@@ -250,6 +271,8 @@ intersection :: (aabb: AABB3, ray: Ray3) -> Vector3, bool {
 
 intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
     // p180
+    #if DEBUG validate_unit_vector(ray.dir);
+
     << t = 0; // set to -FLT_MAX to get first hit on line
     tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
     // For all three slabs
@@ -311,6 +334,8 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
 
 intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
     // p180
+    #if DEBUG validate_unit_vector(ray.dir);
+
     << t = 0; // set to -FLT_MAX to get first hit on line
     tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
     // For all three slabs
@@ -586,6 +611,8 @@ intersects :: (a: AABB3, b: AABB3) -> bool {
 }
 
 intersects :: (aabb: AABB2, ray: Ray2) -> bool {
+    #if DEBUG validate_unit_vector(ray.dir);
+
     divx := 1.0 / ray.dir.x;
     divy := 1.0 / ray.dir.y;
 
@@ -612,6 +639,8 @@ intersects :: (aabb: AABB2, ray: Ray2) -> bool {
 }
 
 intersects :: (aabb: AABB3, ray: Ray3) -> bool {
+    #if DEBUG validate_unit_vector(ray.dir);
+
     divx := 1.0 / ray.dir.x;
     divy := 1.0 / ray.dir.y;
     divz := 1.0 / ray.dir.z;
@@ -824,7 +853,7 @@ area_signed :: (triangle: Triangle2) -> float {
 }
 
 is_ccw :: (triangle: Triangle2) -> bool {
-    return area_signed(triangle) > 0;
+    return area_signed(triangle) < 0;
 }
 
 // ray stuff
@@ -832,8 +861,7 @@ is_ccw :: (triangle: Triangle2) -> bool {
 // returns signed distance from the point to the ray
 distance :: (ray: Ray2, point: Vector2) -> float {
     // real time collision, p127
-
-    // TODO check that dir is a unit vector in debug mode?
+    #if DEBUG validate_unit_vector(ray.dir);
 
     d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y;
     return ray.dir.x * point.x + ray.dir.y * point.y - d;
@@ -841,8 +869,7 @@ distance :: (ray: Ray2, point: Vector2) -> float {
 
 distance :: (ray: Ray3, point: Vector3) -> float {
     // real time collision, p127
-
-    // TODO check that dir is a unit vector in debug mode?
+    #if DEBUG validate_unit_vector(ray.dir);
 
     d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y + ray.dir.z * ray.dir.z;
     return ray.dir.x * point.x + ray.dir.y * point.y + ray.dir.z * point.z - d;
@@ -966,7 +993,7 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
         }
     }
 
-    if inclusive {
+    if inclusive || (x1 == x2 && y1 == y2) {
         point: [2] int;
         point[0] = x2;
         point[1] = y2;
@@ -1149,7 +1176,7 @@ cross :: (a: Vector2, b: Vector2) -> float {
     return a.y * b.x - a.x * b.y;
 }
 
-hermite :: (points: [2]Vector2, tangents: [2]Vector2, t: float) -> Vector2 {
+hermite :: (points: [2] Vector2, tangents: [2] Vector2, t: float) -> Vector2 {
     n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2: float = t * t * t - 2.0 * t * t + t;
     n3: float = -2.0 * t * t * t + 3.0 * t * t;
@@ -1162,7 +1189,7 @@ hermite :: (points: [2]Vector2, tangents: [2]Vector2, t: float) -> Vector2 {
     return vector;
 }
 
-hermite :: (points: [2]Vector3, tangents: [2]Vector3, t: float) -> Vector3 {
+hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
     n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2: float = t * t * t - 2.0 * t * t + t;
     n3: float = -2.0 * t * t * t + 3.0 * t * t;
@@ -1193,8 +1220,60 @@ round :: (value: float64) -> float64 {
     return floor(value + 0.5);
 }
 
+sign :: (value: int) -> int {
+    if value < 0 {
+        return -1;
+    } else if value > 0 {
+        return 1;
+    }
+
+    return 0;
+}
+
+sign :: (value: float) -> float {
+    if value < 0 {
+        return -1;
+    } else if value > 0 {
+        return 1;
+    }
+
+    return 0;
+}
+
+sign :: (value: float64) -> float64 {
+    if value < 0 {
+        return -1;
+    } else if value > 0 {
+        return 1;
+    }
+
+    return 0;
+}
+
 #scope_file
 #import "Basic";
 #import "Math";
 
 EPSILON :: 0.000001;
+
+DEBUG :: true;
+
+validate_unit_vector :: inline (v: Vector2) {
+    if abs(length(v) - 1) > EPSILON {
+        print("Invalid unit vector: %\nExiting.\n", v);
+        print_stack_trace(context.stack_trace);
+        exit(1);
+    }
+}
+
+validate_unit_vector :: inline (v: Vector3) {
+    if abs(length(v) - 1) > EPSILON {
+        print("Invalid unit vector: %\nExiting.\n", v);
+        print_stack_trace(context.stack_trace);
+        exit(1);
+    }
+}
+
+validate_ccw :: inline (v: [] Vector2) {
+    // TODO
+}
