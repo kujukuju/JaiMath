@@ -1,5 +1,27 @@
 main :: () {
     {
+        // rotate rotates in cw direction around the vector
+        vec := Vector3.{0, 1, 0};
+        out := rotate(vec, .{1, 0, 0}, PI / 2.0);
+        if !equals(out, .{0, 0, 1}) {
+            error("vec rotate");
+        }
+    }
+    {
+        vec := Vector3.{0, 1, 0};
+        out := rotate(vec, .{SQRT2_2, SQRT2_2, 0}, PI);
+        if !equals(out, .{1, 0, 0}) {
+            error("vec rotate");
+        }
+    }
+    {
+        vec := Vector3.{0, 0, -1};
+        out := rotate(vec, .{SQRT2_2, SQRT2_2, 0}, -PI / 2.0);
+        if !equals(out, .{SQRT2_2, -SQRT2_2, 0}) {
+            error("vec rotate");
+        }
+    }
+    {
         // ccw is assuming the top of your screen is -y and the bottom of your screen is +y
         ccw := is_ccw(.{.{1, -1}, .{-1, -1}, .{0, 1}});
         if !equals(ccw, true) {

@@ -1140,7 +1140,39 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
     return dot(ac, ac) - e * e / f;
 }
 
+// matrix stuff
+make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
+    return make_rotation_matrix4(make_rotation_quaternion(axis, radians));
+}
+
+// quat stuff
+make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
+    d := length(axis);
+    if d == 0 return Quaternion.{0, 0, 0, 1};
+
+    d = 1.0 / d;
+    l_ang := ifx radians < 0 then PI_2 - (fmod(-radians, PI_2)) else fmod(radians, PI_2);
+    l_sin := sin(l_ang / 2);
+    l_cos := cos(l_ang / 2);
+    return normalize(make_quaternion(d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos));
+}
+
+normalize :: (using quat: Quaternion) -> Quaternion {
+    sq := sqrt(x * x + y * y + z * z + w * w);
+    if sq == 0 {
+        return quat;
+    }
+
+    factor := 1.0 / sq;
+    return make_quaternion(x * factor, y * factor, z * factor, w * factor);
+}
+
 // vector stuff
+rotate :: (vector: Vector3, axis: Vector3, radians: float) -> Vector3 {
+    direction := make_vector4(vector.x, vector.y, vector.z, 1);
+    return (make_rotation_matrix4(axis, radians) * direction).xyz;
+}
+
 min :: (a: Vector2, b: Vector2) -> Vector2 {
     vector: Vector2 = ---;
     vector.x = min(a.x, b.x);
@@ -1255,6 +1287,7 @@ sign :: (value: float64) -> float64 {
 #import "Math";
 
 EPSILON :: 0.000001;
+PI_2 :: PI * 2;
 
 DEBUG :: true;
 
