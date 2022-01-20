@@ -15,6 +15,16 @@ AABB3 :: struct {
     upper: Vector3;
 }
 
+AABB2i :: struct {
+    lower: Vector2i;
+    upper: Vector2i;
+}
+
+AABB3i :: struct {
+    lower: Vector3i;
+    upper: Vector3i;
+}
+
 Triangle2 :: struct {
     a: Vector2;
     b: Vector2;
@@ -45,6 +55,26 @@ Line2 :: struct {
 Line3 :: struct {
     p1: Vector3;
     p2: Vector3;
+}
+
+Line2i :: struct {
+    p1: Vector2i;
+    p2: Vector2i;
+}
+
+Line3i :: struct {
+    p1: Vector3i;
+    p2: Vector3i;
+}
+
+Vector2i :: struct {
+    x: int;
+    y: int;
+}
+
+Vector3i :: struct {
+    x: int;
+    y: int;
 }
 
 // convex polygon stuff
@@ -737,11 +767,11 @@ intersects :: (triangle: Triangle2, point: Vector2) -> bool {
     // p206
     // Test if 2D point P lies inside 2D triangle ABC
     // If P to the right of AB then outside triangle
-    if cross(point - triangle.a, triangle.b - triangle.a) < 0 return false;
+    if cross(point - triangle.a, triangle.b - triangle.a) > 0 return false;
     // If P to the right of BC then outside triangle
-    if cross(point - triangle.b, triangle.c - triangle.b) < 0 return false;
+    if cross(point - triangle.b, triangle.c - triangle.b) > 0 return false;
     // If P to the right of CA then outside triangle
-    if cross(point - triangle.c, triangle.a - triangle.c) < 0 return false;
+    if cross(point - triangle.c, triangle.a - triangle.c) > 0 return false;
     // Otherwise P must be in (or on) the triangle
     return true;
 }
@@ -876,17 +906,17 @@ distance :: (ray: Ray3, point: Vector3) -> float {
 }
 
 // line stuff
-get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
+get_pixels :: (line: Line2i, inclusive: bool = true) -> [..] Vector2i {
     // modified bresenham’s to handle reverse lines and vertical lines
-    x1: int = cast(int) round(line.p1.x);
-    y1: int = cast(int) round(line.p1.y);
-    x2: int = cast(int) round(line.p2.x);
-    y2: int = cast(int) round(line.p2.y);
+    x1 := line.p1.x;
+    y1 := line.p1.y;
+    x2 := line.p2.x;
+    y2 := line.p2.y;
 
     dx := x2 - x1;
     dy := y2 - y1;
 
-    pixels: [..] [2] int;
+    pixels: [..] Vector2i;
     if abs(dx) >= abs(dy) {
         count := abs(dx) + ifx inclusive then 1 else 0;
         array_reserve(*pixels, count);
@@ -898,17 +928,17 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
             p := 2 * dy - dx;
             while x < x2 {
                 if p >= 0 {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     y = y + 1;
                     p = p + 2 * dy - 2 * dx;
                 } else {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     p = p + 2 * dy;
@@ -920,17 +950,17 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
             p := -2 * dy + dx;
             while x > x2 {
                 if p >= 0 {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     y = y - 1;
                     p = p - 2 * dy + 2 * dx;
                 } else {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     p = p - 2 * dy;
@@ -950,17 +980,17 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
             p := 2 * dx - dy;
             while y < y2 {
                 if p >= 0 {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     x = x + 1;
                     p = p + 2 * dx - 2 * dy;
                 } else {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     p = p + 2 * dx;
@@ -972,17 +1002,17 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
             p := -2 * dx + dy;
             while y > y2 {
                 if p >= 0 {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     x = x - 1;
                     p = p - 2 * dx + 2 * dy;
                 } else {
-                    point: [2] int;
-                    point[0] = x;
-                    point[1] = y;
+                    point: Vector2i = ---;
+                    point.x = x;
+                    point.y = y;
                     array_add(*pixels, point);
 
                     p = p - 2 * dx;
@@ -994,9 +1024,9 @@ get_pixels :: (line: Line2, inclusive: bool = true) -> [..] [2] int {
     }
 
     if inclusive || (x1 == x2 && y1 == y2) {
-        point: [2] int;
-        point[0] = x2;
-        point[1] = y2;
+        point: Vector2i = ---;
+        point.x = x2;
+        point.y = y2;
         array_add(*pixels, point);
     }
 
@@ -1235,20 +1265,211 @@ hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
     return vector;
 }
 
+xy :: (x: int, y: int) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = x;
+    r.y = y;
+    return r;
+}
+
+xyz :: (x: int, y: int, z: int) -> Vector3i {
+    r: Vector2i = ---;
+    r.x = x;
+    r.y = y;
+    r.z = z;
+    return r;
+}
+
+operator + :: (a: Vector2i, b: Vector2i) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    return r;
+}
+
+operator + :: (a: Vector3i, b: Vector3i) -> Vector3i {
+    r: Vector3i = ---;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    r.z = a.z + b.z;
+    return r;
+}
+
+operator + :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    return r;
+}
+
+operator + :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+    r: Vector3 = ---;
+    r.x = a.x + b.x;
+    r.y = a.y + b.y;
+    r.z = a.z + b.z;
+    return r;
+}
+
+operator - :: (a: Vector2i, b: Vector2i) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = a.x - b.x;
+    r.y = a.y - b.y;
+    return r;
+}
+
+operator - :: (a: Vector3i, b: Vector3i) -> Vector3i {
+    r: Vector3i = ---;
+    r.x = a.x - b.x;
+    r.y = a.y - b.y;
+    r.z = a.z - b.z;
+    return r;
+}
+
+operator - :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x - b.x;
+    r.y = a.y - b.y;
+    return r;
+}
+
+operator - :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+    r: Vector3 = ---;
+    r.x = a.x - b.x;
+    r.y = a.y - b.y;
+    r.z = a.z - b.z;
+    return r;
+}
+
+operator * :: (a: Vector2i, b: Vector2i) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = a.x * b.x;
+    r.y = a.y * b.y;
+    return r;
+}    
+
+operator * :: (a: Vector3i, b: Vector3i) -> Vector3i {
+    r: Vector3i = ---;
+    r.x = a.x * b.x;
+    r.y = a.y * b.y;
+    r.z = a.z * b.z;
+    return r;
+}
+
+operator * :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x * b.x;
+    r.y = a.y * b.y;
+    return r;
+}    
+
+operator * :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+    r: Vector3 = ---;
+    r.x = a.x * b.x;
+    r.y = a.y * b.y;
+    r.z = a.z * b.z;
+    return r;
+}
+
+operator * :: (a: Vector2i, k: int) -> Vector2i #symmetric {
+    r: Vector2i = ---;
+    r.x = a.x * k;
+    r.y = a.y * k;
+
+    return r;
+}
+
+operator * :: (a: Vector3i, k: int) -> Vector3i #symmetric {
+    r: Vector2i = ---;
+    r.x = a.x * k;
+    r.y = a.y * k;
+    r.z = a.z * k;
+
+    return r;
+}
+
+operator * :: (a: Vector2i, k: float) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x * k;
+    r.y = a.y * k;
+
+    return r;
+}
+
+operator * :: (a: Vector3i, k: float) -> Vector3 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x * k;
+    r.y = a.y * k;
+    r.z = a.z * k;
+
+    return r;
+}
+
+operator / :: (a: Vector2i, k: int) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = a.x / k;
+    r.y = a.y / k;
+    return r;
+}
+
+operator / :: (a: Vector3i, k: int) -> Vector3i {
+    r: Vector3i = ---;
+    r.x = a.x / k;
+    r.y = a.y / k;
+    r.z = a.z / k;
+    return r;
+}
+
+operator / :: (a: Vector2i, k: float) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = a.x / k;
+    r.y = a.y / k;
+    return r;
+}
+
+operator / :: (a: Vector3i, k: float) -> Vector3 {
+    r: Vector3 = ---;
+    r.x = a.x / k;
+    r.y = a.y / k;
+    r.z = a.z / k;
+    return r;
+}
+
+operator / :: (k: int, a: Vector2i) -> Vector2i {
+    r: Vector2i = ---;
+    r.x = k / a.x;
+    r.y = k / a.y;
+    return r;
+}
+
+operator / :: (k: int, a: Vector3i) -> Vector3i {
+    r: Vector3i = ---;
+    r.x = k / a.x;
+    r.y = k / a.y;
+    r.z = k / a.z;
+    return r;
+}
+
+operator / :: (k: float, a: Vector2i) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = k / a.x;
+    r.y = k / a.y;
+    return r;
+}
+
+operator / :: (k: float, a: Vector3i) -> Vector3 {
+    r: Vector3 = ---;
+    r.x = k / a.x;
+    r.y = k / a.y;
+    r.z = k / a.z;
+    return r;
+}
+
 // float stuff
 round :: (value: float) -> float {
-    if value < 0.0 {
-        return floor(value - 0.5);
-    }
-
     return floor(value + 0.5);
 }
 
 round :: (value: float64) -> float64 {
-    if value < 0.0 {
-        return floor(value - 0.5);
-    }
-
     return floor(value + 0.5);
 }
 

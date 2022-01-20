@@ -1,5 +1,17 @@
 main :: () {
     {
+        inside := intersects(Triangle2.{.{-1, 1}, .{1, 1}, .{0, -1}}, .{0, 0});
+        if !equals(inside, true) {
+            error("inside triangle");
+        }
+    }
+    {
+        inside := intersects(Triangle2.{.{-1, 1}, .{1, 1}, .{0, -1}}, .{1, 0});
+        if !equals(inside, false) {
+            error("inside triangle");
+        }
+    }
+    {
         // rotate rotates in cw direction around the vector
         vec := Vector3.{0, 1, 0};
         out := rotate(vec, .{1, 0, 0}, PI / 2.0);
@@ -186,6 +198,67 @@ main :: () {
         defer free(*pixels);
         if !equals(pixels, .[.[4, 9], .[4, 8], .[3, 7], .[3, 6], .[2, 5], .[2, 4], .[1, 3], .[1, 2], .[0, 1]]) {
             error("get_pixels vertical backwards exclusive");
+        }
+    }
+    {
+        pixels: [..] [2] int = get_pixels(.{.{0, 9}, .{-1, 9}});
+        defer free(*pixels);
+        if !equals(pixels, .[.[0, 9], .[-1, 9]]) {
+            error("get_pixels vertical backwards exclusive into negative");
+        }
+    }
+    {
+        pixels: [..] [2] int = get_pixels(.{.{0, 9}, .{1, 9}});
+        defer free(*pixels);
+        if !equals(pixels, .[.[0, 9], .[1, 9]]) {
+            error("get_pixels vertical exclusive");
+        }
+    }
+    {
+        if !equals(round(-2), -2) {
+            error("round");
+        }
+        if !equals(round(-1.9), -2) {
+            error("round");
+        }
+        if !equals(round(-1.5), -1) {
+            error("round");
+        }
+        if !equals(round(-1.1), -1) {
+            error("round");
+        }
+        if !equals(round(-1), -1) {
+            error("round");
+        }
+        if !equals(round(-0.5), 0) {
+            error("round");
+        }
+        if !equals(round(-0.1), 0) {
+            error("round");
+        }
+        if !equals(round(0), 0) {
+            error("round");
+        }
+        if !equals(round(0.1), 0) {
+            error("round");
+        }
+        if !equals(round(0.5), 1) {
+            error("round");
+        }
+        if !equals(round(1), 1) {
+            error("round");
+        }
+        if !equals(round(1.1), 1) {
+            error("round");
+        }
+        if !equals(round(1.5), 2) {
+            error("round");
+        }
+        if !equals(round(1.9), 2) {
+            error("round");
+        }
+        if !equals(round(2), 2) {
+            error("round");
         }
     }
 }
