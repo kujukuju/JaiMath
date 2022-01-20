@@ -10,19 +10,23 @@ AABB2 :: struct {
     upper: Vector2;
 }
 
+make_aabb :: (lower: Vector2, upper: Vector2) -> AABB2 {
+    aabb: AABB2 = ---;
+    aabb.lower = lower;
+    aabb.upper = upper;
+    return aabb;
+}
+
 AABB3 :: struct {
     lower: Vector3;
     upper: Vector3;
 }
 
-AABB2i :: struct {
-    lower: Vector2i;
-    upper: Vector2i;
-}
-
-AABB3i :: struct {
-    lower: Vector3i;
-    upper: Vector3i;
+make_aabb :: (lower: Vector3, upper: Vector3) -> AABB3 {
+    aabb: AABB3 = ---;
+    aabb.lower = lower;
+    aabb.upper = upper;
+    return aabb;
 }
 
 Triangle2 :: struct {
@@ -57,27 +61,655 @@ Line3 :: struct {
     p2: Vector3;
 }
 
-Line2i :: struct {
-    p1: Vector2i;
-    p2: Vector2i;
+// concave polygon stuff
+is_ccw :: (polygon: [] Vector2) -> bool {
+    size := polygon.count;
+    area := 0.0;
+    for i: 0..size - 1 {
+        // get the current point and the next point
+        p1 := polygon[i];
+        p2 := polygon[ifx i + 1 == size then 0 else i + 1];
+        // add the signed area
+        area += cross(p2, p1);
+    }
+    // return the area
+    return area < 0;
 }
 
-Line3i :: struct {
-    p1: Vector3i;
-    p2: Vector3i;
+decompose :: (polygon: [] Vector2) -> [..][..] Vector2 {
+    polygons: [..][..] Vector2;
+
+    if polygon.count < 4 {
+        points: [..] Vector2;
+        for p: polygon {
+            array_add(*points, p);
+        }
+        array_add(*polygons, points);
+        return polygons;
+    }
+
+    if !is_ccw(polygon) {
+        points: [..] Vector2;
+        for p: polygon {
+            array_add(*points, p);
+        }
+        array_add(*polygons, points);
+        return polygons;
+    } else {
+        decompose(polygon, *polygons);
+    }
+
+    return polygons;
 }
 
-Vector2i :: struct {
-    x: int;
-    y: int;
+decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
+    add_all :: (list: *[..] Vector2, new: [] Vector2) {
+        for entry: new {
+            array_add(list, entry);
+        }
+    }
+
+    sublist :: (list: [] Vector2, start: int, end: int) -> [] Vector2 {
+       view: [] Vector2;
+       view = list;
+       view.data += start;
+       view.count = end - start;
+
+       return view;
+    }
+
+    is_reflex :: (p0: Vector2, p: Vector2, p1: Vector2) -> bool {
+		// if the point p is to the right of the line p0-p1 then
+		// the point is a reflex vertex
+		return right(p1, p0, p);
+    }
+
+    get_intersection :: (a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2, p: *Vector2) -> bool {
+        s1 := a1 - a2;
+		s2 := b1 - b2;
+		
+		// compute the cross product (the determinant if we used matrix solving techniques)
+		det := cross(s2, s1);
+		
+		// make sure the matrix isn't singular (the lines could be parallel)
+		if abs(det) <= EPSILON {
+			// return false since there is no way that the segments could be intersecting
+			return false;
+		} else {
+			// pre-divide the determinant
+			det = 1.0 / det;
+			
+			// compute t2
+			t2 := det * (cross(s1, a1) - cross(s1, b1));
+			
+			// compute the intersection point
+			// P = B1(1.0 - t2) + B2(t2)
+			p.x = b1.x * (1.0 - t2) + b2.x * t2;
+			p.y = b1.y * (1.0 - t2) + b2.y * t2;
+			
+			// return that they intersect
+			return true;
+		}
+    }
+
+    left :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
+        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) < 0;
+    }
+
+    left_on :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
+        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) <= 0;
+    }
+
+    right :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
+        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) > 0;
+    }
+
+    right_on :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
+        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) >= 0;
+    }
+
+    get_segment_intersection :: (ap1: Vector2, ap2: Vector2, bp1: Vector2, bp2: Vector2) -> bool {
+		A := ap2 - ap1;
+		B := bp2 - bp1;
+		
+		// compute the bottom
+        // cross if flipped for some reason
+		BxA := cross(A, B);
+		if abs(BxA) <= EPSILON {
+			// the line segments are parallel and don't intersect
+			return false;
+		}
+		
+		// compute the top
+		ambxA := cross(A, ap1 - bp1);
+		if abs(ambxA) <= EPSILON {
+			// the line segments are coincident
+			return false;
+		}
+		
+		// compute tb
+		tb := ambxA / BxA;
+		if tb < 0.0 || tb > 1.0 {
+			// no intersection
+			return false;
+		}
+		
+		// compute the intersection point
+		ip := B * tb + bp1;
+		
+		// since both are segments we need to verify that
+		// ta is also valid.
+		// compute ta
+		ta := dot((ip - ap1), A) / dot(A, A);
+		if ta < 0.0 || ta > 1.0 {
+			// no intersection
+			return false;
+		}
+		
+		return true;
+    }
+
+    is_visible :: (polygon: [] Vector2, i: int, j: int) -> bool {
+        s := polygon.count;
+		iv0, iv, iv1: Vector2;
+		jv0, jv, jv1: Vector2;
+		
+		iv0 = polygon[ifx i == 0 then s - 1 else i - 1];
+		iv = polygon[i];
+		iv1 = polygon[ifx i + 1 == s then 0 else i + 1];
+		
+		jv0 = polygon[ifx j == 0 then s - 1 else j - 1];
+		jv = polygon[j];
+		jv1 = polygon[ifx j + 1 == s then 0 else j + 1];
+		
+		// can i see j
+		if is_reflex(iv0, iv, iv1) {
+			if left_on(iv, iv0, jv) && right_on(iv, iv1, jv) {
+                return false;
+            }
+		} else {
+			if right_on(iv, iv1, jv) || left_on(iv, iv0, jv) {
+                return false;
+            }
+		}
+		// can j see i
+		if is_reflex(jv0, jv, jv1) {
+			if left_on(jv, jv0, iv) && right_on(jv, jv1, iv) {
+                return false;
+            }
+		} else {
+			if right_on(jv, jv1, iv) || left_on(jv, jv0, iv) {
+                return false;
+            }
+		}
+		// make sure the segment from i to j doesn't intersect any edges
+        for k: 0..s - 1 {
+			ki1 := ifx k + 1 == s then 0 else k + 1;
+			if k == i || k == j || ki1 == i || ki1 == j {
+                continue;
+            }
+			k1 := polygon[k];
+			k2 := polygon[ki1];
+			
+			if get_segment_intersection(iv, jv, k1, k2) {
+                return false;
+            }
+		}
+		
+		return true;
+    }
+
+    // get the size of the given polygon
+    size := polygon.count;
+    
+    // initialize
+    upper_intersection: Vector2;
+    lower_intersection: Vector2;
+    upper_distance := FLOAT32_MAX;
+    lower_distance := FLOAT32_MAX;
+    closest_distance := FLOAT32_MAX;
+    upper_index := 0;
+    lower_index := 0;
+    closest_index := 0;
+
+    upper: [..] Vector2;
+    defer array_free(upper);
+    lower: [..] Vector2;
+    defer array_free(lower);
+    
+    // loop over all the vertices
+    for i: 0..size - 1 {
+        // get the current vertex
+        p: Vector2 = polygon[i];
+        
+        // get the adjacent vertices
+        p0: Vector2 = polygon[ifx i - 1 < 0 then size - 1 else i - 1];
+        p1: Vector2 = polygon[ifx i + 1 == size then 0 else i + 1];
+        
+        // check if the vertex is a reflex vertex
+        if is_reflex(p0, p, p1) {
+            // loop over the vertices to determine if both extended
+            // adjacent edges intersect one edge (in which case a 
+            // steiner point will be added)
+            for j: 0..size - 1 {
+                q: Vector2 = polygon[j];
+                
+                // get the adjacent vertices
+                q0: Vector2 = polygon[ifx j - 1 < 0 then size - 1 else j - 1];
+                q1: Vector2 = polygon[ifx j + 1 == size then 0 else j + 1];
+                
+                // create a storage location for the intersection point
+                s: Vector2;
+                
+                // extend the previous edge
+                // does the line p0->p go between the vertices q and q0
+                if left(p0, p, q) && right_on(p0, p, q0) {
+                    // get the intersection point
+                    if get_intersection(p0, p, q, q0, *s) {
+                        // make sure the intersection point is to the right of
+                        // the edge p1->p (this makes sure its inside the polygon)
+                        if right(p1, p, s) {
+                            // get the distance from p to the intersection point s
+                            dist := distance_squared(p, s);
+                            // only save the smallest
+                            if dist < lower_distance {
+                                lower_distance = dist;
+                                lower_intersection.x = s.x;
+                                lower_intersection.y = s.y;
+                                lower_index = j;
+                            }
+                        }
+                    }
+                }
+                
+                // extend the next edge
+                // does the line p1->p go between q and q1
+                if left(p1, p, q1) && right_on(p1, p, q) {
+                    // get the intersection point
+                    if get_intersection(p1, p, q, q1, *s) {
+                        // make sure the intersection point is to the left of
+                        // the edge p0->p (this makes sure its inside the polygon)
+                        if left(p0, p, s) {
+                            // get the distance from p to the intersection point s
+                            dist := distance_squared(p, s);
+                            // only save the smallest
+                            if dist < upper_distance {
+                                upper_distance = dist;
+                                upper_intersection.x = s.x;
+                                upper_intersection.y = s.y;
+                                upper_index = j;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // if the lower index and upper index are equal then this means
+            // that the range of p only included an edge (both extended previous 
+            // and next edges of p only intersected the same edge, therefore no
+            // point exists within that range to connect to)
+            if lower_index == (upper_index + 1) % size {
+                // create a steiner point in the middle
+                s := (upper_intersection + lower_intersection) * 0.5;
+                
+                // partition the polygon
+                if i < upper_index {
+                    add_all(*lower, sublist(polygon, i, upper_index + 1));
+                    array_add(*lower, s);
+                    array_add(*upper, s);
+                    if lower_index != 0 {
+                        add_all(*upper, sublist(polygon, lower_index, size));
+                    }
+                    add_all(*upper, sublist(polygon, 0, i + 1));
+                } else {
+                    if i != 0 {
+                        add_all(*lower, sublist(polygon, i, size));
+                    }
+                    add_all(*lower, sublist(polygon, 0, upper_index + 1));
+                    array_add(*lower, s);
+                    array_add(*upper, s);
+                    add_all(*upper, sublist(polygon, lower_index, i + 1));
+                }
+            } else {
+                // otherwise we need to find the closest "visible" point to p
+                if lower_index > upper_index {
+                    upper_index += size;
+                }
+                
+                closest_index = lower_index;
+                // find the closest visible point
+                for j: lower_index..upper_index {
+                    jmod := j % size;
+                    q: Vector2 = polygon[jmod];
+                    
+                    if q == p || q == p0 || q == p1 {
+                        continue;
+                    }
+                    
+                    // check the distance first, since this is generally
+                    // a much faster operation than checking if its visible
+                    dist := distance_squared(p, q);
+                    if dist < closest_distance {
+                        if is_visible(polygon, i, jmod) {
+                            closest_distance = dist;
+                            closest_index = jmod;
+                        }
+                    }
+                }
+                
+                // once we find the closest partition the polygon
+                if i < closest_index {
+                    add_all(*lower, sublist(polygon, i, closest_index + 1));
+                    if closest_index != 0 {
+                        add_all(*upper, sublist(polygon, closest_index, size));
+                    }
+                    add_all(*upper, sublist(polygon, 0, i + 1));
+                } else {
+                    if i != 0 {
+                        add_all(*lower, sublist(polygon, i, size));
+                    }
+                    add_all(*lower, sublist(polygon, 0, closest_index + 1));
+                    add_all(*upper, sublist(polygon, closest_index, i + 1));
+                }
+            }
+            
+            // decompose the smaller first
+            if lower.count < upper.count {
+                decompose(lower, polygons);
+                decompose(upper, polygons);
+            } else {
+                decompose(upper, polygons);
+                decompose(lower, polygons);
+            }
+            
+            // if the given polygon contains a reflex vertex, then return
+            return;
+        }
+    }
+    
+    // if we get here, we know the given polygon has 0 reflex vertices
+    // and is therefore convex, add it to the list of convex polygons
+    if polygon.count < 3 {
+        assert(false);
+    }
+    vertices: [..] Vector2;
+    array_reserve(*vertices, polygon.count);
+    for v: polygon {
+        array_add(*vertices, v);
+    }
+    array_add(polygons, vertices);
 }
 
-Vector3i :: struct {
-    x: int;
-    y: int;
+create_aabb :: (polygon: [] Vector2) -> AABB2 {
+    if polygon.count == 0 {
+        return .{};
+    }
+
+    aabb: AABB2 = ---;
+    aabb.lower = polygon[0];
+    aabb.upper = polygon[0];
+
+    for i: 1..polygon.count - 1 {
+        aabb.lower = min(aabb.lower, polygon[i]);
+        aabb.upper = max(aabb.upper, polygon[i]);
+    }
+
+    return aabb;
 }
 
 // convex polygon stuff
+is_convex :: (polygon: [] Vector2) -> bool {
+    if polygon.count <= 3 {
+        return true;
+    }
+
+    if polygon.count == 4 {
+        return is_convex(polygon[0], polygon[1], polygon[2], polygon[3]);
+    }
+
+    // TODO we probably don't need to brute force it like this to test convexity?
+    // still though I guess its pretty efficient
+    for i: 0..polygon.count - 4 {
+        if !is_convex(polygon[i], polygon[i + 1], polygon[i + 2], polygon[i + 3]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+interesct_ray_convex_polygon :: (ray: Ray2, polygon: [] Vector2) -> bool, first: float, last: float, last_normal: Vector2 {
+    plane_normal :: (p1: Vector2, p2: Vector2) -> Vector2 {
+        delta := p2 - p1;
+
+        n: Vector2 = ---;
+        n.x = -delta.y;
+        n.y = delta.x;
+        return normalize(n);
+    }
+
+    plane_distance :: (p: Vector2, normal: Vector2) -> float {
+        return dot(p, normal);
+    }
+
+    // Compute direction vector for the segment
+    d := ray.dir;
+    // Set initial interval to being the whole segment. For a ray, tlast should be
+    // set to +FLT_MAX. For a line, additionally tfirst should be set to –FLT_MAX
+    first := 0.0;
+    last := FLOAT32_MAX;
+    last_normal: Vector2;
+    // Intersect segment against each plane
+    for index: 0..polygon.count - 1 {
+        next_index := (index + 1) % polygon.count;
+
+        n := plane_normal(polygon[index], polygon[next_index]);
+        d := plane_distance(polygon[index], n);
+
+        denom := dot(n, ray.dir);
+        dist := d - dot(n, ray.p);
+        // Test if segment runs parallel to the plane
+        if denom == 0 {
+            // If so, return “no intersection” if segment lies outside plane
+            if dist < 0 {
+                return false, 0, 0, .{};
+            }
+        } else {
+            // Compute parameterized t value for intersection with current plane
+            t := dist / denom;
+            if denom < 0 {
+                // When entering halfspace, update tfirst if t is larger
+                if t > first {
+                    first = t;
+                }
+            } else {
+                // When exiting halfspace, update tlast if t is smaller
+                if t < last {
+                    last = t;
+                    last_normal = n;
+                }
+            }
+
+            // Exit with “no intersection” if intersection becomes empty
+            if first > last {
+                return false, 0, 0, .{};
+            }
+        }
+    }
+
+    // A nonzero logical intersection, so the segment intersects the polyhedron
+    return true, first, last, last_normal;
+}
+
+// determines the length to move p2 out of p1
+overlap :: (p1: [] Vector2, p2: [] Vector2, dir: Vector2) -> offset: Vector2, normal: Vector2, collision: bool {
+    norm_dir := normalize(dir);
+    largest_exit := 0.0;
+    largest_exit_normal: Vector2;
+
+    // check how far every point in p2 has to move to get out of p1
+    for p: p2 {
+        ray: Ray2 = ---;
+        ray.p = p;
+        ray.dir = norm_dir;
+
+        hit, start, end, normal := interesct_ray_convex_polygon(ray, p1);
+        if hit && end > largest_exit {
+            largest_exit = end;
+            largest_exit_normal = normal;
+        }
+    }
+
+    // check how far every point in p1 has to move to get out of p2
+    for p: p1 {
+        ray: Ray2 = ---;
+        ray.p = p;
+        ray.dir = -norm_dir;
+        hit, start, end, normal := interesct_ray_convex_polygon(ray, p2);
+        if hit && end > largest_exit {
+            largest_exit = end;
+            largest_exit_normal = -normal;
+        }
+    }
+
+    if largest_exit == 0 {
+        return .{}, .{}, false;
+    }
+
+    return norm_dir * largest_exit, largest_exit_normal, true;
+}
+
+overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
+    Projection :: struct {
+        min: float;
+        max: float;
+    }
+
+    // not okay right? overloaded return values?
+    overlaps :: (p1: Projection, p2: Projection) -> bool {
+        return p1.max > p2.min && p1.min < p2.max;
+    }
+
+    calc_overlaps :: (p1: Projection, p2: Projection) -> float {
+        return min(p1.max, p2.max) - max(p1.min, p2.min);
+    }
+
+    project :: (points: [] Vector2, axis: Vector2) -> Projection {
+        projection: Projection = ---;
+        projection.min = dot(axis, points[0]);
+        projection.max = projection.min;
+
+        for i: 1..points.count - 1 {
+            dot_p := dot(axis, points[i]);
+            if dot_p < projection.min {
+                projection.min = dot_p;
+            } else if dot_p > projection.max {
+                projection.max = dot_p;
+            }
+        }
+
+        return projection;
+    }
+
+    aabb1 := create_aabb(a);
+    aabb2 := create_aabb(b);
+
+    if !intersects(aabb1, aabb2) {
+        return .{}, false;
+    }
+
+    // pointers to each polygon so they can be swapped
+    overlap := FLOAT32_MAX;
+    oaxis: Vector2;
+    sa: [] Vector2 = a;
+    sb: [] Vector2 = b;
+
+    a_location: Vector2;
+    for point: a {
+        a_location += point;
+    }
+    a_location /= xx a.count;
+
+    b_location: Vector2;
+    for point: b {
+        b_location += point;
+    }
+    b_location /= xx b.count;
+
+    for shape: 0..1 {
+        if shape == 1 {
+            sa, sb = swap(sa, sb);
+        }
+
+        // TODO in reality we can take advantage of the fact that we know the max polygon size
+        axes: [..] Vector2;
+        defer array_free(axes);
+
+        array_resize(*axes, sa.count);
+
+        for i: 0..axes.count - 1 {
+            line: Line2 = ---;
+            line.p1 = sa[i];
+            line.p2 = sa[(i + 1) % sa.count];
+
+            axes[i] = normalize(perp(line.p2 - line.p1));
+        }
+
+        for i: 0..axes.count - 1 {
+            axis: Vector2 = axes[i];
+            pa := project(sa, axis);
+            pb := project(sb, axis);
+
+            if !overlaps(pa, pb) {
+                return .{}, false;
+            } else {
+                o := calc_overlaps(pa, pb);
+                if o < overlap {
+                    overlap = o;
+                    oaxis = axis;
+                }
+            }
+        }
+    }
+    
+    // if the smallest penetration normal
+    //     points into shape b,
+    //     flip it
+    if dot((b_location - a_location), oaxis) < 0 {
+        oaxis *= -1;
+    }
+
+    // now oaxis is the axis along which
+    //     the smallest penetration occurred
+    // the resolution vector is that axis normal
+    //     multiplied by the smallest 
+    //     penetration amount
+    resolution := oaxis * overlap;
+
+    return resolution, true;
+}
+
+nearest_point :: (polygon: [] Vector2, point: Vector2) -> Vector2 {
+    min_distance_squared := FLOAT32_MAX;
+    min_distance_point: Vector2;
+
+    for i: 0..polygon.count - 1 {
+        line: Line2 = ---;
+        line.p1 = polygon[i];
+        line.p2 = polygon[(i + 1) % polygon.count];
+
+        nearest := nearest_point(line, point);
+        distance_squared := dot(nearest - point);
+
+        if distance_squared < min_distance_squared {
+            min_distance_squared = distance_squared;
+            min_distance_point = nearest;
+        }
+    }
+
+    return min_distance_point;
+}
+
 intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     // p202
     #if DEBUG validate_ccw(polygon);
@@ -121,6 +753,71 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     final.b = polygon[high];
     final.c = point;
     return is_ccw(final);
+}
+
+intersection :: (polygon: [] Vector2, line: Line2) -> Vector2, bool {
+    // TODO do this better
+    min_hit := false;
+    min_point: Vector2;
+    min_t := 1.0;
+    t := 0.0;
+    for i: 0..polygon.count - 1 {
+        p1 := polygon[i];
+        p2 := polygon[(i + 1) % polygon.count];
+
+        poly_line: Line2 = ---;
+        poly_line.p1 = p1;
+        poly_line.p2 = p2;
+        point, hit := intersection(poly_line, line, *t);
+
+        #if DEBUG {
+            // this should never be possible... right?
+            if t > 1 && hit {
+                assert(false);
+            }
+        }
+
+        if hit && t <= min_t {
+            min_t = t;
+            min_point = point;
+            min_hit = true;
+        }
+    }
+
+    return min_point, min_hit;
+}
+
+intersection :: (polygon: [] Vector2, line: Line2, normal: *Vector2) -> Vector2, bool {
+    // TODO do this better
+    min_hit := false;
+    min_point: Vector2;
+    min_t := 1.0;
+    t := 0.0;
+    for i: 0..polygon.count - 1 {
+        p1 := polygon[i];
+        p2 := polygon[(i + 1) % polygon.count];
+
+        poly_line: Line2 = ---;
+        poly_line.p1 = p1;
+        poly_line.p2 = p2;
+        point, hit := intersection(poly_line, line, *t);
+
+        #if DEBUG {
+            // this should never be possible... right?
+            if t > 1 && hit {
+                assert(false);
+            }
+        }
+
+        if hit && t <= min_t {
+            min_t = t;
+            min_point = point;
+            min_hit = true;
+            << normal = perp(poly_line.p2 - poly_line.p1);
+        }
+    }
+
+    return min_point, min_hit;
 }
 
 // sphere stuff
@@ -743,6 +1440,74 @@ contains :: (outer: AABB2, inner: AABB2) -> bool {
     return result;
 }
 
+contains :: (aabb: AABB2, point: Vector2) -> bool {
+    return point.x >= aabb.lower.x && point.y >= aabb.lower.y && point.x < aabb.upper.x && point.y < aabb.upper.y;
+}
+
+round :: (aabb: AABB2) -> AABB2 {
+    r: AABB2 = ---;
+    r.lower = round(aabb.lower);
+    r.upper = round(aabb.upper);
+    return r;
+}
+
+operator + :: (aabb: AABB2, v: Vector2) -> AABB2 #symmetric {
+    r: AABB2 = ---;
+    r.lower = aabb.lower + v;
+    r.upper = aabb.upper + v;
+    return r;
+}
+
+operator + :: (aabb: AABB3, v: Vector3) -> AABB3 #symmetric {
+    r: AABB3 = ---;
+    r.lower = aabb.lower + v;
+    r.upper = aabb.upper + v;
+    return r;
+}
+
+// gonna really have to do template stuff with this to make it not such a huge mess
+operator - :: (aabb: AABB2, v: Vector2) -> AABB2 {
+    r: AABB2 = ---;
+    r.lower = aabb.lower - v;
+    r.upper = aabb.upper - v;
+    return r;
+}
+
+operator - :: (aabb: AABB3, v: Vector3) -> AABB3 {
+    r: AABB3 = ---;
+    r.lower = aabb.lower - v;
+    r.upper = aabb.upper - v;
+    return r;
+}
+
+operator - :: (v: Vector2, aabb: AABB2) -> AABB2 {
+    r: AABB2 = ---;
+    r.lower = v - aabb.lower;
+    r.upper = v - aabb.upper;
+    return r;
+}
+
+operator - :: (v: Vector3, aabb: AABB3) -> AABB3 {
+    r: AABB3 = ---;
+    r.lower = v - aabb.lower;
+    r.upper = v - aabb.upper;
+    return r;
+}
+
+// quad stuff
+is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
+    // p61
+    // Quad is nonconvex if Dot(Cross(bd, ba), Cross(bd, bc)) >= 0
+    bda := cross(d - b, a - b);
+    bdc := cross(d - b, c - b);
+    if dot(bda, bdc) >= 0 return false;
+    // Quad is now convex iff Dot(Cross(ac, ad), Cross(ac, ab)) < 0
+    acd := cross(c - a, d - a);
+    acb := cross(c - a, b - a);
+
+    return dot(acd, acb) < 0;
+}
+
 // triangle stuff
 intersects :: (triangle: Triangle3, point: Vector3) -> bool {
     // p204
@@ -905,134 +1670,12 @@ distance :: (ray: Ray3, point: Vector3) -> float {
     return ray.dir.x * point.x + ray.dir.y * point.y + ray.dir.z * point.z - d;
 }
 
-// line stuff
-get_pixels :: (line: Line2i, inclusive: bool = true) -> [..] Vector2i {
-    // modified bresenham’s to handle reverse lines and vertical lines
-    x1 := line.p1.x;
-    y1 := line.p1.y;
-    x2 := line.p2.x;
-    y2 := line.p2.y;
-
-    dx := x2 - x1;
-    dy := y2 - y1;
-
-    pixels: [..] Vector2i;
-    if abs(dx) >= abs(dy) {
-        count := abs(dx) + ifx inclusive then 1 else 0;
-        array_reserve(*pixels, count);
-
-        x := x1;
-        y := y1;
-
-        if x2 > x1 {
-            p := 2 * dy - dx;
-            while x < x2 {
-                if p >= 0 {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    y = y + 1;
-                    p = p + 2 * dy - 2 * dx;
-                } else {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    p = p + 2 * dy;
-                }
-
-                x = x + 1;
-            }
-        } else {
-            p := -2 * dy + dx;
-            while x > x2 {
-                if p >= 0 {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    y = y - 1;
-                    p = p - 2 * dy + 2 * dx;
-                } else {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    p = p - 2 * dy;
-                }
-
-                x = x - 1;
-            }
-        }
-    } else {
-        count := abs(dy) + ifx inclusive then 1 else 0;
-        array_reserve(*pixels, count);
-
-        x := x1;
-        y := y1;
-
-        if y2 > y1 {
-            p := 2 * dx - dy;
-            while y < y2 {
-                if p >= 0 {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    x = x + 1;
-                    p = p + 2 * dx - 2 * dy;
-                } else {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    p = p + 2 * dx;
-                }
-
-                y = y + 1;
-            }
-        } else {
-            p := -2 * dx + dy;
-            while y > y2 {
-                if p >= 0 {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    x = x - 1;
-                    p = p - 2 * dx + 2 * dy;
-                } else {
-                    point: Vector2i = ---;
-                    point.x = x;
-                    point.y = y;
-                    array_add(*pixels, point);
-
-                    p = p - 2 * dx;
-                }
-
-                y = y - 1;
-            }
-        }
-    }
-
-    if inclusive || (x1 == x2 && y1 == y2) {
-        point: Vector2i = ---;
-        point.x = x2;
-        point.y = y2;
-        array_add(*pixels, point);
-    }
-
-    return pixels;
+// TODO should really rename all of these to project
+nearest_point :: (ray: Ray2, point: Vector2) -> Vector2 {
+    return dot(point - ray.p, ray.dir) / dot(ray.dir, ray.dir) * ray.dir + ray.p;
 }
 
+// line stuff
 intersection :: (line1: Line2, line2: Line2) -> Vector2, bool {
     t: float = 0;
     vector, value := intersection(line1, line2, *t);
@@ -1198,9 +1841,33 @@ normalize :: (using quat: Quaternion) -> Quaternion {
 }
 
 // vector stuff
+project :: (dest: Vector2, src: Vector2) -> Vector2 {
+    return (dot(src, dest) / dot(dest, dest)) * dest;
+}
+
+inverse_project :: (dest: Vector2, src: Vector2) -> Vector2 {
+    // projects src onto dest but makes a right angle with src so that the final result is much larger
+    theta := acos(dot(src, dest) / (length(src) * length(dest)));
+
+    projection_length := length(src) / sin(PI / 2 - theta);
+    return normalize(dest) * projection_length;
+}
+
 rotate :: (vector: Vector3, axis: Vector3, radians: float) -> Vector3 {
     direction := make_vector4(vector.x, vector.y, vector.z, 1);
     return (make_rotation_matrix4(axis, radians) * direction).xyz;
+}
+
+perp :: (vector: Vector2) -> Vector2 {
+    return xy(-vector.y, vector.x);
+}
+
+distance_squared :: (a: Vector2, b: Vector2) -> float {
+    return length_squared(a - b);
+}
+
+length_squared :: (a: Vector2) -> float {
+    return a.x * a.x + a.y * a.y;
 }
 
 min :: (a: Vector2, b: Vector2) -> Vector2 {
@@ -1238,6 +1905,23 @@ cross :: (a: Vector2, b: Vector2) -> float {
     return a.y * b.x - a.x * b.y;
 }
 
+// returns whether or not vector b is to the right side of vector a
+is_right :: (a: Vector2, b: Vector2) -> bool {
+    return cross(a, b) > 0;
+}
+
+is_left :: (a: Vector2, b: Vector2) -> bool {
+    return cross(a, b) < 0;
+}
+
+is_forward :: (a: Vector2, b: Vector2) -> bool {
+    return dot(a, b) > 0;
+}
+
+is_backward :: (a: Vector2, b: Vector2) -> bool {
+    return dot(a, b) < 0;
+}
+
 hermite :: (points: [2] Vector2, tangents: [2] Vector2, t: float) -> Vector2 {
     n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2: float = t * t * t - 2.0 * t * t + t;
@@ -1265,202 +1949,94 @@ hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
     return vector;
 }
 
-xy :: (x: int, y: int) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = x;
-    r.y = y;
-    return r;
-}
-
-xyz :: (x: int, y: int, z: int) -> Vector3i {
-    r: Vector2i = ---;
-    r.x = x;
-    r.y = y;
-    r.z = z;
-    return r;
-}
-
-operator + :: (a: Vector2i, b: Vector2i) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = a.x + b.x;
-    r.y = a.y + b.y;
-    return r;
-}
-
-operator + :: (a: Vector3i, b: Vector3i) -> Vector3i {
-    r: Vector3i = ---;
-    r.x = a.x + b.x;
-    r.y = a.y + b.y;
-    r.z = a.z + b.z;
-    return r;
-}
-
-operator + :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+round :: (v: Vector2) -> Vector2 {
     r: Vector2 = ---;
-    r.x = a.x + b.x;
-    r.y = a.y + b.y;
+    r.x = round(v.x);
+    r.y = round(v.y);
     return r;
 }
 
-operator + :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+round :: (v: Vector3) -> Vector3 {
     r: Vector3 = ---;
-    r.x = a.x + b.x;
-    r.y = a.y + b.y;
-    r.z = a.z + b.z;
+    r.x = round(v.x);
+    r.y = round(v.y);
+    r.z = round(v.z);
     return r;
 }
 
-operator - :: (a: Vector2i, b: Vector2i) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = a.x - b.x;
-    r.y = a.y - b.y;
-    return r;
-}
+normalize :: (v: Vector2) -> Vector2 {
+    len2 := v.x * v.x + v.y * v.y;
+    if len2 == 0 {
+        return Vector2.{0, 0};
+    }
+    
+    len := sqrt(len2);
 
-operator - :: (a: Vector3i, b: Vector3i) -> Vector3i {
-    r: Vector3i = ---;
-    r.x = a.x - b.x;
-    r.y = a.y - b.y;
-    r.z = a.z - b.z;
-    return r;
-}
-
-operator - :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
     r: Vector2 = ---;
-    r.x = a.x - b.x;
-    r.y = a.y - b.y;
+    r.x = v.x / len;
+    r.y = v.y / len;
+
     return r;
 }
 
-operator - :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+dot :: (v: Vector2) -> float {
+    return v.x * v.x + v.y * v.y;
+}
+
+operator += :: (a: *Vector2, b: Vector2) {
+    a.x += b.x;
+    a.y += b.y;
+}
+
+operator - :: (a: Vector2) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = -a.x;
+    r.y = -a.y;
+    return r;
+}
+
+operator + :: (a: Vector2, b: float) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x + b;
+    r.y = a.y + b;
+    return r;
+}
+
+operator + :: (a: Vector3, b: float) -> Vector3 #symmetric {
     r: Vector3 = ---;
-    r.x = a.x - b.x;
-    r.y = a.y - b.y;
-    r.z = a.z - b.z;
+    r.x = a.x + b;
+    r.y = a.y + b;
+    r.z = a.z + b;
     return r;
 }
 
-operator * :: (a: Vector2i, b: Vector2i) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = a.x * b.x;
-    r.y = a.y * b.y;
-    return r;
-}    
-
-operator * :: (a: Vector3i, b: Vector3i) -> Vector3i {
-    r: Vector3i = ---;
-    r.x = a.x * b.x;
-    r.y = a.y * b.y;
-    r.z = a.z * b.z;
-    return r;
-}
-
-operator * :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+operator - :: (a: Vector2, b: float) -> Vector2 {
     r: Vector2 = ---;
-    r.x = a.x * b.x;
-    r.y = a.y * b.y;
+    r.x = a.x - b;
+    r.y = a.y - b;
     return r;
-}    
+}
 
-operator * :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+operator - :: (a: Vector3, b: float) -> Vector3 {
     r: Vector3 = ---;
-    r.x = a.x * b.x;
-    r.y = a.y * b.y;
-    r.z = a.z * b.z;
+    r.x = a.x - b;
+    r.y = a.y - b;
+    r.z = a.z - b;
     return r;
 }
 
-operator * :: (a: Vector2i, k: int) -> Vector2i #symmetric {
-    r: Vector2i = ---;
-    r.x = a.x * k;
-    r.y = a.y * k;
-
-    return r;
-}
-
-operator * :: (a: Vector3i, k: int) -> Vector3i #symmetric {
-    r: Vector2i = ---;
-    r.x = a.x * k;
-    r.y = a.y * k;
-    r.z = a.z * k;
-
-    return r;
-}
-
-operator * :: (a: Vector2i, k: float) -> Vector2 #symmetric {
+operator - :: (a: float, b: Vector2) -> Vector2 {
     r: Vector2 = ---;
-    r.x = a.x * k;
-    r.y = a.y * k;
-
+    r.x = a - b.x;
+    r.y = a - b.y;
     return r;
 }
 
-operator * :: (a: Vector3i, k: float) -> Vector3 #symmetric {
-    r: Vector2 = ---;
-    r.x = a.x * k;
-    r.y = a.y * k;
-    r.z = a.z * k;
-
-    return r;
-}
-
-operator / :: (a: Vector2i, k: int) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = a.x / k;
-    r.y = a.y / k;
-    return r;
-}
-
-operator / :: (a: Vector3i, k: int) -> Vector3i {
-    r: Vector3i = ---;
-    r.x = a.x / k;
-    r.y = a.y / k;
-    r.z = a.z / k;
-    return r;
-}
-
-operator / :: (a: Vector2i, k: float) -> Vector2 {
-    r: Vector2 = ---;
-    r.x = a.x / k;
-    r.y = a.y / k;
-    return r;
-}
-
-operator / :: (a: Vector3i, k: float) -> Vector3 {
+operator - :: (a: float, b: Vector3) -> Vector3 {
     r: Vector3 = ---;
-    r.x = a.x / k;
-    r.y = a.y / k;
-    r.z = a.z / k;
-    return r;
-}
-
-operator / :: (k: int, a: Vector2i) -> Vector2i {
-    r: Vector2i = ---;
-    r.x = k / a.x;
-    r.y = k / a.y;
-    return r;
-}
-
-operator / :: (k: int, a: Vector3i) -> Vector3i {
-    r: Vector3i = ---;
-    r.x = k / a.x;
-    r.y = k / a.y;
-    r.z = k / a.z;
-    return r;
-}
-
-operator / :: (k: float, a: Vector2i) -> Vector2 {
-    r: Vector2 = ---;
-    r.x = k / a.x;
-    r.y = k / a.y;
-    return r;
-}
-
-operator / :: (k: float, a: Vector3i) -> Vector3 {
-    r: Vector3 = ---;
-    r.x = k / a.x;
-    r.y = k / a.y;
-    r.z = k / a.z;
+    r.x = a - b.x;
+    r.y = a - b.y;
+    r.z = a - b.z;
     return r;
 }
 
@@ -1473,6 +2049,14 @@ round :: (value: float64) -> float64 {
     return floor(value + 0.5);
 }
 
+roundi :: (value: float) -> int {
+    return cast(int) floor(value + 0.5);
+}
+
+roundi :: (value: float64) -> s64 {
+    return cast(s64) floor(value + 0.5);
+}
+
 sign :: (value: int) -> int {
     if value < 0 {
         return -1;
@@ -1481,6 +2065,10 @@ sign :: (value: int) -> int {
     }
 
     return 0;
+}
+
+dot :: (a: float, b: float) -> float {
+    return a * b;
 }
 
 sign :: (value: float) -> float {
@@ -1503,6 +2091,487 @@ sign :: (value: float64) -> float64 {
     return 0;
 }
 
+radians_between :: (start: float, end: float) -> float {
+    // TODO this is bad and probably slow I need to change it later
+    if end < start {
+        if start - end > PI {
+            return PI * 2 - (start - end);
+        } else {
+            return -(start - end);
+        }
+    } else {
+        if end - start > PI {
+            return -(PI * 2 - (end - start));
+        } else {
+            return end - start;
+        }
+    }
+}
+
+#if INT_MATH {
+    AABB2i :: struct {
+        lower: Vector2i;
+        upper: Vector2i;
+    }
+
+    AABB3i :: struct {
+        lower: Vector3i;
+        upper: Vector3i;
+    }
+
+    Line2i :: struct {
+        p1: Vector2i;
+        p2: Vector2i;
+    }
+
+    Line3i :: struct {
+        p1: Vector3i;
+        p2: Vector3i;
+    }
+
+    Vector2i :: struct {
+        x: int;
+        y: int;
+    }
+
+    Vector3i :: struct {
+        x: int;
+        y: int;
+        z: int;
+    }
+    
+    operator + :: (aabb: AABB2, v: Vector2i) -> AABB2 #symmetric {
+        r: AABB2 = ---;
+        r.lower = aabb.lower + v;
+        r.upper = aabb.upper + v;
+        return r;
+    }
+
+    operator + :: (aabb: AABB3, v: Vector3i) -> AABB3 #symmetric {
+        r: AABB3 = ---;
+        r.lower = aabb.lower + v;
+        r.upper = aabb.upper + v;
+        return r;
+    }
+    
+    get_pixels :: (line: Line2i, inclusive: bool = true) -> [..] Vector2i {
+        // modified bresenham’s to handle reverse lines and vertical lines
+        x1 := line.p1.x;
+        y1 := line.p1.y;
+        x2 := line.p2.x;
+        y2 := line.p2.y;
+
+        dx := x2 - x1;
+        dy := y2 - y1;
+
+        pixels: [..] Vector2i;
+        if abs(dx) >= abs(dy) {
+            count := abs(dx) + ifx inclusive then 1 else 0;
+            array_reserve(*pixels, count);
+
+            x := x1;
+            y := y1;
+
+            if x2 > x1 {
+                p := 2 * dy - dx;
+                while x < x2 {
+                    if p >= 0 {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        y = y + 1;
+                        p = p + 2 * dy - 2 * dx;
+                    } else {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        p = p + 2 * dy;
+                    }
+
+                    x = x + 1;
+                }
+            } else {
+                p := -2 * dy + dx;
+                while x > x2 {
+                    if p >= 0 {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        y = y - 1;
+                        p = p - 2 * dy + 2 * dx;
+                    } else {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        p = p - 2 * dy;
+                    }
+
+                    x = x - 1;
+                }
+            }
+        } else {
+            count := abs(dy) + ifx inclusive then 1 else 0;
+            array_reserve(*pixels, count);
+
+            x := x1;
+            y := y1;
+
+            if y2 > y1 {
+                p := 2 * dx - dy;
+                while y < y2 {
+                    if p >= 0 {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        x = x + 1;
+                        p = p + 2 * dx - 2 * dy;
+                    } else {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        p = p + 2 * dx;
+                    }
+
+                    y = y + 1;
+                }
+            } else {
+                p := -2 * dx + dy;
+                while y > y2 {
+                    if p >= 0 {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        x = x - 1;
+                        p = p - 2 * dx + 2 * dy;
+                    } else {
+                        point: Vector2i = ---;
+                        point.x = x;
+                        point.y = y;
+                        array_add(*pixels, point);
+
+                        p = p - 2 * dx;
+                    }
+
+                    y = y - 1;
+                }
+            }
+        }
+
+        if inclusive || (x1 == x2 && y1 == y2) {
+            point: Vector2i = ---;
+            point.x = x2;
+            point.y = y2;
+            array_add(*pixels, point);
+        }
+
+        return pixels;
+    }
+
+    roundi :: (aabb: AABB2) -> AABB2i {
+        r: AABB2i = ---;
+        r.lower = roundi(aabb.lower);
+        r.upper = roundi(aabb.upper);
+        return r;
+    }
+    
+    roundi :: (v: Vector2) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = cast(int) round(v.x);
+        r.y = cast(int) round(v.y);
+        return r;
+    }
+
+    roundi :: (v: Vector3) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = cast(int) round(v.x);
+        r.y = cast(int) round(v.y);
+        r.z = cast(int) round(v.z);
+        return r;
+    }
+    
+    xy :: (x: int, y: int) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = x;
+        r.y = y;
+        return r;
+    }
+
+    xyz :: (x: int, y: int, z: int) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = x;
+        r.y = y;
+        r.z = z;
+        return r;
+    }
+
+    operator == :: (a: Vector2i, b: Vector2i) -> bool {
+        return a.x == b.x && a.y == b.y;
+    }
+
+    operator == :: (a: Vector3i, b: Vector3i) -> bool {
+        return a.x == b.x && a.y == b.y && a.z == b.z;
+    }
+
+    operator + :: (a: Vector2i, b: Vector2i) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = a.x + b.x;
+        r.y = a.y + b.y;
+        return r;
+    }
+
+    // these methods dont seem to work?
+    operator + :: (a: *Vector2i, b: Vector2i) {
+        a.x += b.x;
+        a.y += b.y;
+    }
+
+    operator + :: (a: Vector3i, b: Vector3i) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = a.x + b.x;
+        r.y = a.y + b.y;
+        r.z = a.z + b.z;
+        return r;
+    }
+
+    operator + :: (a: *Vector3i, b: Vector3i) {
+        a.x += b.x;
+        a.y += b.y;
+        a.z += b.z;
+    }
+
+    operator + :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+        r: Vector2 = ---;
+        r.x = a.x + b.x;
+        r.y = a.y + b.y;
+        return r;
+    }
+
+    operator + :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+        r: Vector3 = ---;
+        r.x = a.x + b.x;
+        r.y = a.y + b.y;
+        r.z = a.z + b.z;
+        return r;
+    }
+
+    operator - :: (a: Vector2i, b: Vector2i) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = a.x - b.x;
+        r.y = a.y - b.y;
+        return r;
+    }
+
+    operator - :: (a: *Vector2i, b: Vector2i) {
+        a.x -= b.x;
+        a.y -= b.y;
+    }
+
+    operator - :: (a: Vector3i, b: Vector3i) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = a.x - b.x;
+        r.y = a.y - b.y;
+        r.z = a.z - b.z;
+        return r;
+    }
+
+    operator - :: (a: *Vector3i, b: Vector3i) {
+        a.x -= b.x;
+        a.y -= b.y;
+        a.z -= b.z;
+    }
+
+    operator - :: (a: Vector2i, b: Vector2) -> Vector2 {
+        r: Vector2 = ---;
+        r.x = a.x - b.x;
+        r.y = a.y - b.y;
+        return r;
+    }
+
+    operator - :: (a: *Vector2, b: Vector2i) {
+        a.x -= b.x;
+        a.y -= b.y;
+    }
+
+    operator - :: (a: Vector3i, b: Vector3) -> Vector3 {
+        r: Vector3 = ---;
+        r.x = a.x - b.x;
+        r.y = a.y - b.y;
+        r.z = a.z - b.z;
+        return r;
+    }
+
+    operator - :: (a: *Vector3, b: Vector3i) {
+        a.x -= b.x;
+        a.y -= b.y;
+        a.z -= b.z;
+    }
+
+    operator * :: (a: Vector2i, b: Vector2i) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = a.x * b.x;
+        r.y = a.y * b.y;
+        return r;
+    }
+
+    operator * :: (a: *Vector2i, b: Vector2i) {
+        a.x *= b.x;
+        a.y *= b.y;
+    }
+
+    operator * :: (a: Vector3i, b: Vector3i) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = a.x * b.x;
+        r.y = a.y * b.y;
+        r.z = a.z * b.z;
+        return r;
+    }
+
+    operator * :: (a: *Vector3i, b: Vector3i) {
+        a.x *= b.x;
+        a.y *= b.y;
+        a.z *= b.z;
+    }
+
+    operator * :: (a: Vector2i, b: Vector2) -> Vector2 #symmetric {
+        r: Vector2 = ---;
+        r.x = a.x * b.x;
+        r.y = a.y * b.y;
+        return r;
+    }
+
+    operator * :: (a: *Vector2, b: Vector2i) {
+        a.x *= b.x;
+        a.y *= b.y;
+    }
+
+    operator * :: (a: Vector3i, b: Vector3) -> Vector3 #symmetric {
+        r: Vector3 = ---;
+        r.x = a.x * b.x;
+        r.y = a.y * b.y;
+        r.z = a.z * b.z;
+        return r;
+    }
+
+    operator * :: (a: *Vector3, b: Vector3i) {
+        a.x *= b.x;
+        a.y *= b.y;
+        a.z *= b.z;
+    }
+
+    operator * :: (a: Vector2i, k: int) -> Vector2i #symmetric {
+        r: Vector2i = ---;
+        r.x = a.x * k;
+        r.y = a.y * k;
+
+        return r;
+    }
+
+    operator * :: (a: *Vector2i, k: int) {
+        a.x *= k;
+        a.y *= k;
+    }
+
+    operator * :: (a: Vector3i, k: int) -> Vector3i #symmetric {
+        r: Vector3i = ---;
+        r.x = a.x * k;
+        r.y = a.y * k;
+        r.z = a.z * k;
+
+        return r;
+    }
+
+    operator * :: (a: Vector2i, k: float) -> Vector2 #symmetric {
+        r: Vector2 = ---;
+        r.x = a.x * k;
+        r.y = a.y * k;
+
+        return r;
+    }
+
+    operator * :: (a: Vector3i, k: float) -> Vector3 #symmetric {
+        r: Vector3 = ---;
+        r.x = a.x * k;
+        r.y = a.y * k;
+        r.z = a.z * k;
+
+        return r;
+    }
+
+    operator / :: (a: Vector2i, k: int) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = a.x / k;
+        r.y = a.y / k;
+        return r;
+    }
+
+    operator / :: (a: Vector3i, k: int) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = a.x / k;
+        r.y = a.y / k;
+        r.z = a.z / k;
+        return r;
+    }
+
+    operator / :: (a: Vector2i, k: float) -> Vector2 {
+        r: Vector2 = ---;
+        r.x = a.x / k;
+        r.y = a.y / k;
+        return r;
+    }
+
+    operator / :: (a: Vector3i, k: float) -> Vector3 {
+        r: Vector3 = ---;
+        r.x = a.x / k;
+        r.y = a.y / k;
+        r.z = a.z / k;
+        return r;
+    }
+
+    operator / :: (k: int, a: Vector2i) -> Vector2i {
+        r: Vector2i = ---;
+        r.x = k / a.x;
+        r.y = k / a.y;
+        return r;
+    }
+
+    operator / :: (k: int, a: Vector3i) -> Vector3i {
+        r: Vector3i = ---;
+        r.x = k / a.x;
+        r.y = k / a.y;
+        r.z = k / a.z;
+        return r;
+    }
+
+    operator / :: (k: float, a: Vector2i) -> Vector2 {
+        r: Vector2 = ---;
+        r.x = k / a.x;
+        r.y = k / a.y;
+        return r;
+    }
+
+    operator / :: (k: float, a: Vector3i) -> Vector3 {
+        r: Vector3 = ---;
+        r.x = k / a.x;
+        r.y = k / a.y;
+        r.z = k / a.z;
+        return r;
+    }
+}
+
 #scope_file
 #import "Basic";
 #import "Math";
@@ -1511,6 +2580,7 @@ EPSILON :: 0.000001;
 PI_2 :: PI * 2;
 
 DEBUG :: true;
+INT_MATH :: false;
 
 validate_unit_vector :: inline (v: Vector2) {
     if abs(length(v) - 1) > EPSILON {
@@ -1529,5 +2599,9 @@ validate_unit_vector :: inline (v: Vector3) {
 }
 
 validate_ccw :: inline (v: [] Vector2) {
-    // TODO
+    if !is_ccw(v) {
+        print("Invalid polygon winding. %\nExiting.\n", v);
+        print_stack_trace(context.stack_trace);
+        exit(1);
+    }
 }
