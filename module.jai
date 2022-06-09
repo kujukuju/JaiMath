@@ -63,6 +63,10 @@ Line3 :: struct {
 
 // concave polygon stuff
 is_ccw :: (polygon: [] Vector2) -> bool {
+    if polygon.count < 3 {
+        return true;
+    }
+
     size := polygon.count;
     area := 0.0;
     for i: 0..size - 1 {
@@ -74,6 +78,25 @@ is_ccw :: (polygon: [] Vector2) -> bool {
     }
     // return the area
     return area < 0;
+}
+
+intersects_concave :: (polygon: [] Vector2, point: Vector2) -> bool {
+    j := polygon.count - 1;
+    odd_nodes := false;
+
+    for i: 0..polygon.count - 1 {
+        cond := polygon[i].y < point.y && polygon[j].y >= point.y || polygon[j].y < point.y && polygon[i].y >= point.y;
+        cond = cond && (polygon[i].x <= point.x || polygon[j].x <= point.x);
+        if cond {
+            if polygon[i].x + (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) * (polygon[j].x - polygon[i].x) < point.x {
+                odd_nodes = !odd_nodes;
+            }
+        }
+
+        j = i;
+    }
+
+    return odd_nodes;
 }
 
 decompose :: (polygon: [] Vector2) -> [..][..] Vector2 {
@@ -430,7 +453,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
     // if we get here, we know the given polygon has 0 reflex vertices
     // and is therefore convex, add it to the list of convex polygons
     if polygon.count < 3 {
-        assert(false);
+        return; // assert(false);
     }
     vertices: [..] Vector2;
     array_reserve(*vertices, polygon.count);
@@ -469,8 +492,11 @@ is_convex :: (polygon: [] Vector2) -> bool {
 
     // TODO we probably don't need to brute force it like this to test convexity?
     // still though I guess its pretty efficient
-    for i: 0..polygon.count - 4 {
-        if !is_convex(polygon[i], polygon[i + 1], polygon[i + 2], polygon[i + 3]) {
+    for i: 0..polygon.count - 1 {
+        i2 := (i + 1) % polygon.count;
+        i3 := (i + 2) % polygon.count;
+        i4 := (i + 3) % polygon.count;
+        if !is_convex(polygon[i], polygon[i2], polygon[i3], polygon[i4]) {
             return false;
         }
     }
@@ -714,6 +740,10 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     // p202
     #if DEBUG validate_ccw(polygon);
 
+    if polygon.count < 3 {
+        return false;
+    }
+
     // Test if point p lies inside ccw-specified convex n-gon given by vertices v[]
     // Do binary search over polygon vertices to find the fan triangle
     // (v[0], v[low], v[high]) the point p lies within the near sides of
@@ -818,6 +848,63 @@ intersection :: (polygon: [] Vector2, line: Line2, normal: *Vector2) -> Vector2,
     }
 
     return min_point, min_hit;
+}
+
+FixedPolygon :: struct (max_count: int) {
+    count: int;
+    vertices: [max_count] Vector2;
+}
+
+split_convex_polygon :: (vertices: [] Vector2, $max_count: int) -> [..] FixedPolygon(max_count) {
+    poly_list: [..] FixedPolygon(max_count);
+
+    assert(vertices.count >= 3, "You cannot split a polygon with fewer than 3 vertices.");
+
+    final_polygon_count: int = roundi(ceil((vertices.count - 2.0) / (max_count - 2.0)));
+    if final_polygon_count == 1 {
+        split_polygon: FixedPolygon(max_count);
+        split_polygon.count = vertices.count;
+        for i: 0..vertices.count - 1 {
+            split_polygon.vertices[i] = vertices[i];
+        }
+
+        array_add(*poly_list, split_polygon);
+
+        return poly_list;
+    }
+
+    iterate_offset: float = (vertices.count - 1.0) / final_polygon_count;
+
+    indices: [..] int;
+    defer array_free(indices);
+
+    array_add(*indices, 0);
+    for i: 0..final_polygon_count - 2 {
+        array_add(*indices, roundi(ceil(iterate_offset * (i + 1))));
+    }
+
+    for i: 0..indices.count - 1 {
+        split_polygon: FixedPolygon(max_count);
+
+        split_polygon.vertices[split_polygon.count] = vertices[0];
+        split_polygon.count += 1;
+
+        start_index := indices[i];
+        if start_index != 0 {
+            split_polygon.vertices[split_polygon.count] = vertices[start_index];
+            split_polygon.count += 1;
+        }
+
+        end_index := ifx i + 1 < indices.count then indices[i + 1] else vertices.count - 1;
+        for index: start_index + 1..end_index {
+            split_polygon.vertices[split_polygon.count] = vertices[index];
+            split_polygon.count += 1;
+        }
+
+        array_add(*poly_list, split_polygon);
+    }
+
+    return poly_list;
 }
 
 // sphere stuff
@@ -1813,6 +1900,25 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
     return dot(ac, ac) - e * e / f;
 }
 
+// array stuff
+reverse :: (v: [] Vector2) -> [..] Vector2 {
+    new: [..] Vector2;
+    for i: 0..v.count - 1 {
+        index := v.count - i - 1;
+        array_add(*new, v[index]);
+    }
+
+    return new;
+}
+
+reverse :: (v: *[] Vector2) {
+    for i: 0..v.count / 2 - 1 {
+        p1, p2 := swap(v.data[i], v.data[v.count - i - 1]);
+        v.data[i] = p1;
+        v.data[v.count - i - 1] = p2;
+    }
+}
+
 // matrix stuff
 make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
     return make_rotation_matrix4(make_rotation_quaternion(axis, radians));
@@ -1988,11 +2094,28 @@ operator += :: (a: *Vector2, b: Vector2) {
     a.y += b.y;
 }
 
+operator / :: (a: Vector2, b: Vector2) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = a.x / b.x;
+    r.y = a.y / b.y;
+    return r;
+}
+
+operator /= :: (a: *Vector2, b: Vector2) {
+    a.x /= b.x;
+    a.y /= b.y;
+}
+
 operator - :: (a: Vector2) -> Vector2 {
     r: Vector2 = ---;
     r.x = -a.x;
     r.y = -a.y;
     return r;
+}
+
+operator -= :: (a: *Vector2, b: Vector2) {
+    a.x -= b.x;
+    a.y -= b.y;
 }
 
 operator + :: (a: Vector2, b: float) -> Vector2 #symmetric {
