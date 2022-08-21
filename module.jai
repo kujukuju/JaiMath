@@ -46,6 +46,13 @@ Ray2 :: struct {
     dir: Vector2;
 }
 
+ray2 :: (p: Vector2, dir: Vector2) -> Ray2 {
+    ray: Ray2 = ---;
+    ray.p = p;
+    ray.dir = dir;
+    return ray;
+}
+
 Ray3 :: struct {
     p: Vector3;
     dir: Vector3;
@@ -851,8 +858,54 @@ intersection :: (polygon: [] Vector2, line: Line2, normal: *Vector2) -> Vector2,
 }
 
 FixedPolygon :: struct (max_count: int) {
-    count: int;
     vertices: [max_count] Vector2;
+    count: int;
+}
+
+operator == :: (fixed: FixedPolygon($N), other: FixedPolygon($M)) -> bool {
+    if fixed.count != other.count {
+        return false;
+    }
+
+    for i: 0..fixed.count - 1 {
+        if fixed[i] != other[i] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+operator [] :: (fixed: FixedPolygon($N), index: int) -> Vector2 {
+    return fixed.vertices[index];
+}
+
+fixed_polygon :: (vertices: [$N] Vector2, count: int) -> FixedPolygon(N) {
+    fixed: FixedPolygon(N);
+    fixed.vertices = vertices;
+    fixed.count = count;
+    return fixed;
+}
+
+reverse :: (fixed: *FixedPolygon($N)) {
+    for i: 0..fixed.count / 2 - 1 {
+        fixed.vertices[i], fixed.vertices[fixed.count - i - 1] = swap(fixed.vertices[i], fixed.vertices[fixed.count - i - 1]);
+    }
+}
+
+// TODO wrong name
+contains :: (fixed: FixedPolygon($N), other: FixedPolygon($M)) -> bool {
+    if fixed.count < other.count {
+        return false;
+    }
+
+    for i: 0..fixed.count - 1 {
+        if fixed[i] != other[i] {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 split_convex_polygon :: (vertices: [] Vector2, $max_count: int) -> [..] FixedPolygon(max_count) {
@@ -1741,13 +1794,31 @@ is_ccw :: (triangle: Triangle2) -> bool {
 // ray stuff
 // ray.dir must be a unit vector
 // returns signed distance from the point to the ray
-distance :: (ray: Ray2, point: Vector2) -> float {
-    // real time collision, p127
-    #if DEBUG validate_unit_vector(ray.dir);
 
-    d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y;
-    return ray.dir.x * point.x + ray.dir.y * point.y - d;
+distance :: (ray: Ray2, point: Vector2) -> float {
+    #if DEBUG validate_unit_vector(ray.dir);
+    
+    a := ray.p;
+    b := ray.p + ray.dir;
+    c := point;
+
+    ab := b - a;
+    ac := c - a;
+    e := dot(ac, ab);
+    f := dot(ab, ab);
+
+    signed := sign(cross(ray.dir, point - ray.p));
+
+    return sqrt(dot(ac, ac) - e * e / f) * signed;
 }
+
+// distance :: (ray: Ray2, point: Vector2) -> float {
+//     // real time collision, p127
+//     #if DEBUG validate_unit_vector(ray.dir);
+
+//     d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y;
+//     return ray.dir.x * point.x + ray.dir.y * point.y - d;
+// }
 
 distance :: (ray: Ray3, point: Vector3) -> float {
     // real time collision, p127
@@ -1976,35 +2047,39 @@ length_squared :: (a: Vector2) -> float {
     return a.x * a.x + a.y * a.y;
 }
 
-min :: (a: Vector2, b: Vector2) -> Vector2 {
-    vector: Vector2 = ---;
-    vector.x = min(a.x, b.x);
-    vector.y = min(a.y, b.y);
-    return vector;
+atan2 :: (a: Vector2) -> float {
+    return atan2(a.y, a.x);
 }
 
-min :: (a: Vector3, b: Vector3) -> Vector3 {
-    vector: Vector3 = ---;
-    vector.x = min(a.x, b.x);
-    vector.y = min(a.y, b.y);
-    vector.z = min(a.z, b.z);
-    return vector;
-}
+// min :: (a: Vector2, b: Vector2) -> Vector2 {
+//     vector: Vector2 = ---;
+//     vector.x = min(a.x, b.x);
+//     vector.y = min(a.y, b.y);
+//     return vector;
+// }
 
-max :: (a: Vector2, b: Vector2) -> Vector2 {
-    vector: Vector2 = ---;
-    vector.x = max(a.x, b.x);
-    vector.y = max(a.y, b.y);
-    return vector;
-}
+// min :: (a: Vector3, b: Vector3) -> Vector3 {
+//     vector: Vector3 = ---;
+//     vector.x = min(a.x, b.x);
+//     vector.y = min(a.y, b.y);
+//     vector.z = min(a.z, b.z);
+//     return vector;
+// }
 
-max :: (a: Vector3, b: Vector3) -> Vector3 {
-    vector: Vector3 = ---;
-    vector.x = max(a.x, b.x);
-    vector.y = max(a.y, b.y);
-    vector.z = max(a.z, b.z);
-    return vector;
-}
+// max :: (a: Vector2, b: Vector2) -> Vector2 {
+//     vector: Vector2 = ---;
+//     vector.x = max(a.x, b.x);
+//     vector.y = max(a.y, b.y);
+//     return vector;
+// }
+
+// max :: (a: Vector3, b: Vector3) -> Vector3 {
+//     vector: Vector3 = ---;
+//     vector.x = max(a.x, b.x);
+//     vector.y = max(a.y, b.y);
+//     vector.z = max(a.z, b.z);
+//     return vector;
+// }
 
 cross :: (a: Vector2, b: Vector2) -> float {
     // p205
@@ -2092,13 +2167,6 @@ dot :: (v: Vector2) -> float {
 operator += :: (a: *Vector2, b: Vector2) {
     a.x += b.x;
     a.y += b.y;
-}
-
-operator / :: (a: Vector2, b: Vector2) -> Vector2 {
-    r: Vector2 = ---;
-    r.x = a.x / b.x;
-    r.y = a.y / b.y;
-    return r;
 }
 
 operator /= :: (a: *Vector2, b: Vector2) {
