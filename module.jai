@@ -10,7 +10,7 @@ AABB2 :: struct {
     upper: Vector2;
 }
 
-make_aabb :: (lower: Vector2, upper: Vector2) -> AABB2 {
+create_aabb2 :: (lower: Vector2, upper: Vector2) -> AABB2 {
     aabb: AABB2 = ---;
     aabb.lower = lower;
     aabb.upper = upper;
@@ -22,11 +22,27 @@ AABB3 :: struct {
     upper: Vector3;
 }
 
-make_aabb :: (lower: Vector3, upper: Vector3) -> AABB3 {
+create_aabb3 :: (lower: Vector3, upper: Vector3) -> AABB3 {
     aabb: AABB3 = ---;
     aabb.lower = lower;
     aabb.upper = upper;
     return aabb;
+}
+
+create_plane3 :: (p: Vector3, n: Vector3) -> Plane3 {
+    result: Plane3 = ---;
+    result.a = n.x;
+    result.b = n.y;
+    result.c = n.z;
+    result.d = dot(n, p);
+
+    return result;
+}
+
+Circle3 :: struct {
+    p: Vector3;
+    n: Vector3;
+    r: float;
 }
 
 Triangle2 :: struct {
@@ -41,12 +57,16 @@ Triangle3 :: struct {
     c: Vector3;
 }
 
+create_triangle3 :: (a: Vector3, b: Vector3, c: Vector3) -> Triangle3 {
+    return .{a, b, c};
+}
+
 Ray2 :: struct {
     p: Vector2;
     dir: Vector2;
 }
 
-ray2 :: (p: Vector2, dir: Vector2) -> Ray2 {
+create_ray2 :: (p: Vector2, dir: Vector2) -> Ray2 {
     ray: Ray2 = ---;
     ray.p = p;
     ray.dir = dir;
@@ -104,6 +124,30 @@ intersects_concave :: (polygon: [] Vector2, point: Vector2) -> bool {
     }
 
     return odd_nodes;
+}
+
+nearest_point_concave :: (polygon: [] Vector2, point: Vector2) -> Vector2 {
+    // this method assumes the point is inside the polygon
+    nearest_distance_squared := FLOAT32_MAX;
+    nearest_distance_point: Vector2;
+
+    for i: 0..polygon.count - 1 {
+        p1 := polygon[i];
+        p2 := polygon[(i + 1) % polygon.count];
+
+        line: Line2 = ---;
+        line.p1 = p1;
+        line.p2 = p2;
+
+        nearest := nearest_point(line, point);
+        d2 := distance_squared(nearest, point);
+        if d2 < nearest_distance_squared {
+            nearest_distance_squared = d2;
+            nearest_distance_point = nearest;
+        }
+    }
+
+    return nearest_distance_point;
 }
 
 decompose :: (polygon: [] Vector2) -> [..][..] Vector2 {
@@ -661,13 +705,13 @@ overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
     for point: a {
         a_location += point;
     }
-    a_location /= xx a.count;
+    a_location /= a.count;
 
     b_location: Vector2;
     for point: b {
         b_location += point;
     }
-    b_location /= xx b.count;
+    b_location /= b.count;
 
     for shape: 0..1 {
         if shape == 1 {
@@ -1056,6 +1100,21 @@ intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     return ray, true;
 }
 
+intersection :: (plane: Plane3, ray: Ray3) -> Vector3, bool {
+    // p176
+    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(ray.dir);
+
+    // does not handle division by 0
+    // compute the t value for the directed line ab intersecting the plane
+    t := (plane.d - dot(plane.n, ray.p)) / dot(plane.n, ray.dir);
+    if t >= 0 {
+        return ray.p + t * ray.dir, true;
+    }
+    
+    return .{0, 0, 0}, false;
+}
+
 intersection :: (plane: Plane3, line: Line3) -> Vector3, bool {
     t: float = 0;
     point, value := intersection(plane, line, *t);
@@ -1123,6 +1182,44 @@ distance :: (plane: Plane3, point: Vector3) -> float {
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
 
+// circle stuff
+nearest_point :: (circle: Circle3, ray: Ray3) -> Vector3 {
+    // nearest point on circle
+    #if DEBUG validate_unit_vector(circle.n);
+    #if DEBUG validate_unit_vector(ray.dir);
+
+    // this whole method is probably slightly wrong bc im mostly just projecting onto planes and solving the edge case of orthogonal
+
+    circle_plane := create_plane3(circle.p, circle.n);
+
+    // if the ray and the circle are tangential, we have to calculate it a different way
+    if abs(dot(circle.n, ray.dir)) < EPSILON {
+        plane_ray_point := nearest_point(circle_plane, ray.p);
+        plane_ray_dir := normalize(nearest_point(circle_plane, ray.dir));
+        plane_ray := Ray3.{plane_ray_point, plane_ray_dir};
+
+        nearest := nearest_point(plane_ray, circle.p);
+        dist := length(nearest - circle.p);
+        if dist >= circle.r {
+            return circle.p + normalize(nearest - circle.p) * circle.r;
+        } else {
+            // the projected ray collides with 2 points on the circle
+            sphere := Sphere.{circle.p, circle.r};
+            sphere_point := intersection(sphere, plane_ray);
+            return sphere_point;
+        }
+    } else {
+        plane_point := intersection(circle_plane, ray);
+        delta := plane_point - circle.p;
+        if length(delta) < EPSILON {
+            plane_ray_dir := normalize(nearest_point(circle_plane, ray.dir));
+            return circle.p - plane_ray_dir * circle.r;
+        } else {
+            return circle.p + normalize(delta) * circle.r;
+        }
+    }
+}
+
 // aabb stuff
 intersection :: (aabb: AABB2, ray: Ray2) -> Vector2, bool {
     t: float = 0;
@@ -1150,7 +1247,7 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
         }
     } else {
         // Compute intersection t value of ray with near and far plane of slab
-        ood := 1 / ray.dir.x;
+        ood := 1.0 / ray.dir.x;
         t1 := (aabb.lower.x - ray.p.x) * ood;
         t2 := (aabb.upper.x - ray.p.x) * ood;
         // Make t1 be intersection with near plane, t2 with far plane
@@ -1176,7 +1273,7 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
         }
     } else {
         // Compute intersection t value of ray with near and far plane of slab
-        ood := 1 / ray.dir.y;
+        ood := 1.0 / ray.dir.y;
         t1 := (aabb.lower.y - ray.p.y) * ood;
         t2 := (aabb.upper.y - ray.p.y) * ood;
         // Make t1 be intersection with near plane, t2 with far plane
@@ -1199,93 +1296,43 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
     return ray.p + ray.dir * << t, true;
 }
 
-intersection :: (aabb: AABB3, ray: Ray3, t: *float) -> Vector3, bool {
+intersection :: (aabb: AABB3, ray: Ray3, tmin: *float) -> Vector3, bool {
     // p180
     #if DEBUG validate_unit_vector(ray.dir);
 
-    << t = 0; // set to -FLT_MAX to get first hit on line
-    tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
-    // For all three slabs
-    if abs(ray.dir.x) < EPSILON {
-        // Ray is parallel to slab. No hit if origin not within slab
-        if ray.p.x < aabb.lower.x || ray.p.x > aabb.upper.x {
-            return .{0, 0, 0}, false;
-        }
-    } else {
-        // Compute intersection t value of ray with near and far plane of slab
-        ood := 1 / ray.dir.x;
-        t1 := (aabb.lower.x - ray.p.x) * ood;
-        t2 := (aabb.upper.x - ray.p.x) * ood;
-        // Make t1 be intersection with near plane, t2 with far plane
-        if t1 > t2 {
-            t1, t2 = swap(t1, t2);
-        }
-        // Compute the intersection of slab intersection intervals
-        if t1 > << t {
-            << t = t1;
-        }
-        if t2 > tmax {
-            tmax = t2;
-        }
-        // Exit with no collision as soon as slab intersection becomes empty
-        if << t > tmax {
-            return .{0, 0, 0}, false;
+    p := ray.p.component;
+    d := ray.dir.component;
+    amin := aabb.lower.component;
+    amax := aabb.upper.component;
+
+    << tmin = 0;
+    tmax := FLOAT32_MAX;
+
+    for i: 0..2 {
+        if abs(d[i]) < EPSILON {
+            if p[i] < amin[i] || p[i] > amax[i] {
+                return .{}, false;
+            }
+        } else  {
+            t1 := (amin[i] - p[i]) / d[i];
+            t2 := (amax[i] - p[i]) / d[i];
+
+            if t1 > t2 {
+                t1, t2 = swap(t1, t2);
+            }
+
+            << tmin = max(<< tmin, t1);
+            tmax = min(tmax, t2);
         }
     }
-    if abs(ray.dir.y) < EPSILON {
-        // Ray is parallel to slab. No hit if origin not within slab
-        if ray.p.y < aabb.lower.y || ray.p.y > aabb.upper.y {
-            return .{0, 0, 0}, false;
-        }
-    } else {
-        // Compute intersection t value of ray with near and far plane of slab
-        ood := 1 / ray.dir.y;
-        t1 := (aabb.lower.y - ray.p.y) * ood;
-        t2 := (aabb.upper.y - ray.p.y) * ood;
-        // Make t1 be intersection with near plane, t2 with far plane
-        if t1 > t2 {
-            t1, t2 = swap(t1, t2);
-        }
-        // Compute the intersection of slab intersection intervals
-        if t1 > << t {
-            << t = t1;
-        }
-        if t2 > tmax {
-            tmax = t2;
-        }
-        // Exit with no collision as soon as slab intersection becomes empty
-        if << t > tmax {
-            return .{0, 0, 0}, false;
-        }
+
+    if tmax < (<< tmin) {
+        return .{}, false;
     }
-    if abs(ray.dir.z) < EPSILON {
-        // Ray is parallel to slab. No hit if origin not within slab
-        if ray.p.z < aabb.lower.z || ray.p.z > aabb.upper.z {
-            return .{0, 0, 0}, false;
-        }
-    } else {
-        // Compute intersection t value of ray with near and far plane of slab
-        ood := 1 / ray.dir.z;
-        t1 := (aabb.lower.z - ray.p.z) * ood;
-        t2 := (aabb.upper.z - ray.p.z) * ood;
-        // Make t1 be intersection with near plane, t2 with far plane
-        if t1 > t2 {
-            t1, t2 = swap(t1, t2);
-        }
-        // Compute the intersection of slab intersection intervals
-        if t1 > << t {
-            << t = t1;
-        }
-        if t2 > tmax {
-            tmax = t2;
-        }
-        // Exit with no collision as soon as slab intersection becomes empty
-        if << t > tmax {
-            return .{0, 0, 0}, false;
-        }
-    }
-    // Ray intersects all 3 slabs. Return point (q) and intersection t value (tmin)
-    return ray.p + ray.dir * << t, true;
+
+    // ray intersects all 3 slabs
+    q := ray.p + ray.dir * (<< tmin);
+    return q, true;
 }
 
 intersects :: (aabb: AABB2, line: Line2) -> bool {
@@ -1649,6 +1696,49 @@ is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 }
 
 // triangle stuff
+intersection :: (triangle: Triangle3, ray: Ray3) -> Vector3, Vector3, bool {
+    #if DEBUG validate_unit_vector(ray.dir);
+
+    p := ray.p;
+    q := ray.p + ray.dir;
+
+    using triangle;
+
+    ab := b - a;
+    ac := c - a;
+    qp := p - q;
+
+    n := cross(ab, ac);
+
+    d := dot(qp, n);
+    if d < 0 {
+        return .{}, .{}, false;
+    }
+
+    ap := p - a;
+    t := dot(ap, n);
+    if t < 0 {
+        return .{}, .{}, false;
+    }
+
+    e := cross(qp, ap);
+    v := dot(ac, e);
+    if v < 0 || v > d {
+        return .{}, .{}, false;
+    }
+    w := -dot(ab, e);
+    if w < 0 || v + w > d {
+        return .{}, .{}, false;
+    }
+
+    ood := 1.0 / d;
+    t *= ood;
+    v *= ood;
+    w *= ood;
+    u := 1.0 - v - w;
+    return ray.p + ray.dir * t, n, true;
+}
+
 intersects :: (triangle: Triangle3, point: Vector3) -> bool {
     // p204
     // Translate point and triangle so that point lies at origin
@@ -1795,6 +1885,45 @@ is_ccw :: (triangle: Triangle2) -> bool {
 // ray.dir must be a unit vector
 // returns signed distance from the point to the ray
 
+nearest_point :: (ray1: Ray3, ray2: Ray3) -> Vector3, Vector3 {
+    #if DEBUG validate_unit_vector(ray1.dir);
+    #if DEBUG validate_unit_vector(ray2.dir);
+
+    p1 := ray1.p;
+    d1 := ray1.dir;
+    p2 := ray2.p;
+    d2 := ray2.dir;
+    r := ray1.p - ray2.p;
+
+    a := dot(d1, d1);
+    b := dot(d1, d2);
+    c := dot(d1, r);
+    e := dot(d2, d2);
+    f := dot(d2, r);
+
+    denom := a * e - b * b;
+    s := 0.0;
+    if abs(denom) >= EPSILON {
+        s = (b * f - c * e) / denom;
+    }
+
+    // compute point on ray2
+    t := (b * s + f) / e;
+
+    result1 := ray1.p + ray1.dir * s;
+    result2 := ray2.p + ray2.dir * t;
+    return result1, result2;
+}
+
+nearest_point :: (ray: Ray3, point: Vector3) -> Vector3 {
+    #if DEBUG validate_unit_vector(ray.dir);
+
+    // p128
+    t := dot(point - ray.p, ray.dir) / dot(ray.dir, ray.dir);
+
+    return ray.p + t * ray.dir;
+}
+
 distance :: (ray: Ray2, point: Vector2) -> float {
     #if DEBUG validate_unit_vector(ray.dir);
     
@@ -1824,8 +1953,10 @@ distance :: (ray: Ray3, point: Vector3) -> float {
     // real time collision, p127
     #if DEBUG validate_unit_vector(ray.dir);
 
-    d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y + ray.dir.z * ray.dir.z;
-    return ray.dir.x * point.x + ray.dir.y * point.y + ray.dir.z * point.z - d;
+    return length(nearest_point(ray, point) - point);
+
+    // d := ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y + ray.dir.z * ray.dir.z;
+    // return ray.dir.x * point.x + ray.dir.y * point.y + ray.dir.z * point.z - d;
 }
 
 // TODO should really rename all of these to project
@@ -1834,6 +1965,16 @@ nearest_point :: (ray: Ray2, point: Vector2) -> Vector2 {
 }
 
 // line stuff
+nearest_point :: (line: Line3, ray: Ray3) -> Vector3 {
+    #if DEBUG validate_unit_vector(ray.dir);
+
+    line_ray := Ray3.{line.p1, normalize(line.p2 - line.p1)};
+
+    line_ray_nearest := nearest_point(line_ray, ray);
+
+    return nearest_point(line, line_ray_nearest);
+}
+
 intersection :: (line1: Line2, line2: Line2) -> Vector2, bool {
     t: float = 0;
     vector, value := intersection(line1, line2, *t);
@@ -1992,7 +2133,7 @@ reverse :: (v: *[] Vector2) {
 
 // matrix stuff
 make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
-    return make_rotation_matrix4(make_rotation_quaternion(axis, radians));
+    return make_rotation_matrix4(axis, radians);
 }
 
 // quat stuff
@@ -2001,7 +2142,7 @@ make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     if d == 0 return Quaternion.{0, 0, 0, 1};
 
     d = 1.0 / d;
-    l_ang := ifx radians < 0 then PI_2 - (fmod(-radians, PI_2)) else fmod(radians, PI_2);
+    l_ang := ifx radians < 0 then PI_2 - (fmod_cycling(-radians, PI_2)) else fmod_cycling(radians, PI_2);
     l_sin := sin(l_ang / 2);
     l_cos := cos(l_ang / 2);
     return normalize(make_quaternion(d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos));
@@ -2018,6 +2159,10 @@ normalize :: (using quat: Quaternion) -> Quaternion {
 }
 
 // vector stuff
+project :: (dest: Vector3, src: Vector3) -> Vector3 {
+    return (dot(src, dest) / dot(dest, dest)) * dest;
+}
+
 project :: (dest: Vector2, src: Vector2) -> Vector2 {
     return (dot(src, dest) / dot(dest, dest)) * dest;
 }
@@ -2190,6 +2335,20 @@ operator + :: (a: Vector2, b: float) -> Vector2 #symmetric {
     r: Vector2 = ---;
     r.x = a.x + b;
     r.y = a.y + b;
+    return r;
+}
+
+operator / :: (a: Vector2, b: int) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = a.x / b;
+    r.y = a.y / b;
+    return r;
+}
+
+operator * :: (a: Vector2, b: int) -> Vector2 #symmetric {
+    r: Vector2 = ---;
+    r.x = a.x * b;
+    r.y = a.y * b;
     return r;
 }
 
