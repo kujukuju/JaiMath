@@ -78,6 +78,13 @@ Ray3 :: struct {
     dir: Vector3;
 }
 
+create_ray3 :: (p: Vector3, dir: Vector3) -> Ray3 {
+    ray: Ray3 = ---;
+    ray.p = p;
+    ray.dir = dir;
+    return ray;
+}
+
 Line2 :: struct {
     p1: Vector2;
     p2: Vector2;
@@ -87,6 +94,13 @@ Line3 :: struct {
     p1: Vector3;
     p2: Vector3;
 }
+
+Matrix4Identity :: Matrix4.{
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+};
 
 // concave polygon stuff
 is_ccw :: (polygon: [] Vector2) -> bool {
@@ -555,7 +569,7 @@ is_convex :: (polygon: [] Vector2) -> bool {
     return true;
 }
 
-interesct_ray_convex_polygon :: (ray: Ray2, polygon: [] Vector2) -> bool, first: float, last: float, last_normal: Vector2 {
+intersect_ray_convex_polygon :: (ray: Ray2, polygon: [] Vector2) -> bool, first: float, last: float, last_normal: Vector2 {
     plane_normal :: (p1: Vector2, p2: Vector2) -> Vector2 {
         delta := p2 - p1;
 
@@ -1100,7 +1114,7 @@ intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     return ray, true;
 }
 
-intersection :: (plane: Plane3, ray: Ray3) -> Vector3, bool {
+intersection :: (plane: Plane3, ray: Ray3, $allow_negative: bool = false) -> Vector3, bool, float {
     // p176
     #if DEBUG validate_unit_vector(plane.n);
     #if DEBUG validate_unit_vector(ray.dir);
@@ -1108,11 +1122,16 @@ intersection :: (plane: Plane3, ray: Ray3) -> Vector3, bool {
     // does not handle division by 0
     // compute the t value for the directed line ab intersecting the plane
     t := (plane.d - dot(plane.n, ray.p)) / dot(plane.n, ray.dir);
-    if t >= 0 {
-        return ray.p + t * ray.dir, true;
+
+    #if allow_negative {
+        return ray.p + t * ray.dir, true, t;
+    } else {
+        if t >= 0 {
+            return ray.p + t * ray.dir, true, t;
+        }
+
+        return .{0, 0, 0}, false, 0;
     }
-    
-    return .{0, 0, 0}, false;
 }
 
 intersection :: (plane: Plane3, line: Line3) -> Vector3, bool {
@@ -1221,6 +1240,30 @@ nearest_point :: (circle: Circle3, ray: Ray3) -> Vector3 {
 }
 
 // aabb stuff
+transform_aabb :: (matrix: Matrix4, aabb: AABB3) -> AABB3 {
+    aabb_points: [8] Vector3 = ---;
+    aabb_points[0] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.lower.z};
+    aabb_points[1] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.upper.z};
+    aabb_points[2] = Vector3.{aabb.lower.x, aabb.upper.y, aabb.lower.z};
+    aabb_points[3] = Vector3.{aabb.lower.x, aabb.upper.y, aabb.upper.z};
+    aabb_points[4] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.lower.z};
+    aabb_points[5] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.upper.z};
+    aabb_points[6] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.lower.z};
+    aabb_points[7] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.upper.z};
+
+    transformed: AABB3 = ---;
+    transformed.lower = inline transform_point(matrix, aabb_points[0]);
+    transformed.upper = transformed.lower;
+
+    for i: 1..aabb_points.count - 1 {
+        point := inline transform_point(matrix, aabb_points[i]);
+        transformed.lower = min(transformed.lower, point);
+        transformed.upper = max(transformed.upper, point);
+    }
+
+    return transformed;
+}
+
 intersection :: (aabb: AABB2, ray: Ray2) -> Vector2, bool {
     t: float = 0;
     vector, value := intersection(aabb, ray, *t);
@@ -1513,11 +1556,14 @@ intersects :: (a: AABB3, b: AABB3) -> bool {
     d1 := b.lower - a.upper;
     d2 := a.lower - b.upper;
 
-    if d1.x > 0 || d1.y > 0 || d1.z > 0 {
-        return false;
-    }
+    avoid := d1.x > 0;
+    avoid = avoid || d1.y > 0;
+    avoid = avoid || d1.z > 0;
+    avoid = avoid || d2.x > 0;
+    avoid = avoid || d2.y > 0;
+    avoid = avoid || d2.z > 0;
 
-    if d2.x > 0 || d2.y > 0 || d2.z > 0 {
+    if avoid {
         return false;
     }
 
@@ -1696,6 +1742,10 @@ is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 }
 
 // triangle stuff
+operator == :: (a: Triangle3, b: Triangle3) -> bool {
+    return a.a == b.a && a.b == b.b && a.c == b.c;    
+}
+
 intersection :: (triangle: Triangle3, ray: Ray3) -> Vector3, Vector3, bool {
     #if DEBUG validate_unit_vector(ray.dir);
 
@@ -2136,6 +2186,38 @@ make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
     return make_rotation_matrix4(axis, radians);
 }
 
+get_scale :: (mat: Matrix4) -> Vector3 {
+    column := mat.v[0];
+
+    if column.w == 0 {
+        return .{1, 1, 1};
+    } else {
+        scale := column.xyz;
+        scale /= column.w;
+        return scale;
+    }
+}
+
+decompose_matrix4 :: (matrix: Matrix4) -> Vector3, Quaternion, Vector3 {
+    translation := Vector3.{matrix._14, matrix._24, matrix._34};
+
+    rotation := get_rotation(matrix);
+
+    // scale := Vector3.{
+    //     length(matrix.v[0]),
+    //     length(matrix.v[1]),
+    //     length(matrix.v[2]),
+    // };
+
+    scale := Vector3.{
+        length(Vector3.{matrix._11, matrix._21, matrix._31}),
+        length(Vector3.{matrix._12, matrix._22, matrix._32}),
+        length(Vector3.{matrix._13, matrix._23, matrix._33}),
+    };
+
+    return translation, rotation, scale;
+}
+
 // quat stuff
 make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     d := length(axis);
@@ -2158,6 +2240,63 @@ normalize :: (using quat: Quaternion) -> Quaternion {
     return make_quaternion(x * factor, y * factor, z * factor, w * factor);
 }
 
+quat_radians_between :: (qa: Quaternion, qb: Quaternion) -> float {
+    cos_half_theta := qa.w * qb.w + qa.x * qb.x + qa.y * qb.y + qa.z * qb.z;
+
+    if cos_half_theta < 0 {
+        cos_half_theta = -cos_half_theta;
+    }
+
+    radians := acos(cos_half_theta);
+    return radians;
+}
+
+quat_slerp :: (qa: Quaternion, qb1: Quaternion, t: float) -> Quaternion {
+    qb := qb1;
+
+    qm: Quaternion;
+
+    cos_half_theta := qa.w * qb.w + qa.x * qb.x + qa.y * qb.y + qa.z * qb.z;
+
+    if cos_half_theta < 0 {
+        qb.w = -qb.w;
+        qb.x = -qb.x;
+        qb.y = -qb.y;
+        qb.z = -qb.z;
+        cos_half_theta = -cos_half_theta;
+    }
+
+	// if qa=qb or qa=-qb then theta = 0 and we can return qa
+	if abs(cos_half_theta) >= 1.0 {
+		qm.w = qa.w;
+        qm.x = qa.x;
+        qm.y = qa.y;
+        qm.z = qa.z;
+		return qm;
+	}
+
+	half_theta := acos(cos_half_theta);
+	sin_half_theta := sqrt(1.0 - cos_half_theta * cos_half_theta);
+
+    // if theta = 180 degrees then result is not fully defined
+	// we could rotate around any axis normal to qa or qb
+	if abs(sin_half_theta) < 0.001 {
+		qm.w = (qa.w * 0.5 + qb.w * 0.5);
+		qm.x = (qa.x * 0.5 + qb.x * 0.5);
+		qm.y = (qa.y * 0.5 + qb.y * 0.5);
+		qm.z = (qa.z * 0.5 + qb.z * 0.5);
+		return qm;
+	}
+	ratio_a := sin((1 - t) * half_theta) / sin_half_theta;
+	ratio_b := sin(t * half_theta) / sin_half_theta; 
+    
+	qm.w = (qa.w * ratio_a + qb.w * ratio_b);
+	qm.x = (qa.x * ratio_a + qb.x * ratio_b);
+	qm.y = (qa.y * ratio_a + qb.y * ratio_b);
+	qm.z = (qa.z * ratio_a + qb.z * ratio_b);
+	return qm;
+}
+
 // vector stuff
 project :: (dest: Vector3, src: Vector3) -> Vector3 {
     return (dot(src, dest) / dot(dest, dest)) * dest;
@@ -2166,6 +2305,29 @@ project :: (dest: Vector3, src: Vector3) -> Vector3 {
 project :: (dest: Vector2, src: Vector2) -> Vector2 {
     return (dot(src, dest) / dot(dest, dest)) * dest;
 }
+
+project_direction :: (normal: Vector3, direction: Vector3) -> Vector3 {
+    return direction - dot(normal, direction) * normal;
+}
+
+// normalize :: (using v: Vector2) -> Vector2 #must {
+//     normalize(*v, epsilon, fallback);
+//     return v;
+// }
+
+// normalize :: (using v: *Vector2) -> float {
+//     sq := sqrt(x*x + y*y);
+//     if sq == 0.0 {
+//         <<v = .{};
+//         return sq;
+//     }
+
+//     factor := 1.0 / sq;
+//     x *= factor;
+//     y *= factor;
+
+//     return sq;
+// }
 
 inverse_project :: (dest: Vector2, src: Vector2) -> Vector2 {
     // projects src onto dest but makes a right angle with src so that the final result is much larger
@@ -2319,12 +2481,12 @@ operator /= :: (a: *Vector2, b: Vector2) {
     a.y /= b.y;
 }
 
-operator - :: (a: Vector2) -> Vector2 {
-    r: Vector2 = ---;
-    r.x = -a.x;
-    r.y = -a.y;
-    return r;
-}
+// operator - :: (a: Vector2) -> Vector2 {
+//     r: Vector2 = ---;
+//     r.x = -a.x;
+//     r.y = -a.y;
+//     return r;
+// }
 
 operator -= :: (a: *Vector2, b: Vector2) {
     a.x -= b.x;
