@@ -1,5 +1,10 @@
 // page numbers come from "Real Time Collision Detection by Christer Ericson"
 
+Frustum :: struct {
+    point: Vector3;
+    normals: [5] Vector3;
+}
+
 Sphere :: struct {
     c: Vector3;
     r: float;
@@ -55,6 +60,9 @@ Triangle3 :: struct {
     a: Vector3;
     b: Vector3;
     c: Vector3;
+
+#place a;
+    component: [3] Vector3 = ---;
 }
 
 create_triangle3 :: (a: Vector3, b: Vector3, c: Vector3) -> Triangle3 {
@@ -206,6 +214,10 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
        return view;
     }
 
+    right :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
+        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) > 0;
+    }
+
     is_reflex :: (p0: Vector2, p: Vector2, p1: Vector2) -> bool {
 		// if the point p is to the right of the line p0-p1 then
 		// the point is a reflex vertex
@@ -246,10 +258,6 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
 
     left_on :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
         return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) <= 0;
-    }
-
-    right :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
-        return (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y) > 0;
     }
 
     right_on :: (a: Vector2, b: Vector2, p: Vector2) -> bool {
@@ -1114,6 +1122,12 @@ intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     return ray, true;
 }
 
+intersection_simple :: (plane: Plane3, ray: Ray3) -> Vector3, float {
+    // for optimized version of intersection when you don't care about unit vectors either
+    t := (plane.d - dot(plane.n, ray.p)) / dot(plane.n, ray.dir);
+    return ray.p + t * ray.dir, t;
+}
+
 intersection :: (plane: Plane3, ray: Ray3, $allow_negative: bool = false) -> Vector3, bool, float {
     // p176
     #if DEBUG validate_unit_vector(plane.n);
@@ -1175,6 +1189,18 @@ intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
     }
     // Else no intersection
     return false;
+}
+
+outside :: (plane: Plane3, point: Vector3) -> bool {
+    #if DEBUG validate_unit_vector(plane.n);
+
+    return dot(point, plane.n) > plane.d;
+}
+
+inside :: (plane: Plane3, point: Vector3) -> bool {
+    #if DEBUG validate_unit_vector(plane.n);
+
+    return dot(point, plane.n) <= plane.d;
 }
 
 // Determine whether sphere s is fully behind (inside negative halfspace of) plane p
@@ -1262,6 +1288,94 @@ transform_aabb :: (matrix: Matrix4, aabb: AABB3) -> AABB3 {
     }
 
     return transformed;
+}
+
+intersects :: (aabb: AABB3, plane: Plane3) -> bool {
+    // realtime physics, p. 164
+    // These two lines not necessary with a (center, extents) AABB representation
+    c := (aabb.upper + aabb.lower) * 0.5; // Compute AABB center
+    e := aabb.upper - c; // Compute positive extents
+    // Compute the projection interval radius of b onto L(t) = b.c + t * p.n
+    r := e.x * abs(plane.n.x) + e.y * abs(plane.n.y) + e.z * abs(plane.n.z);
+    // Compute distance of box center from plane
+    s := dot(plane.n, c) - plane.d;
+    // Intersection occurs when distance s falls within [-r,+r] interval
+    return abs(s) <= r;
+}
+
+intersects :: (aabb: AABB3, triangle: Triangle3) -> bool {
+    // realtime physics, p. 171
+    p0: float = ---;
+    p2: float = ---;
+    r: float = ---;
+
+    // compute box center and extents (if not already given in that format)
+    c: Vector3 = (aabb.lower + aabb.upper) * 0.5;
+    e0: float = (aabb.upper.x - aabb.lower.x) * 0.5;
+    e1: float = (aabb.upper.y - aabb.lower.y) * 0.5;
+    e2: float = (aabb.upper.z - aabb.lower.z) * 0.5;
+
+    // translate triangle as conceptually moving AABB to origin
+    v0: Vector3 = triangle.a - c;
+    v1: Vector3 = triangle.b - c;
+    v2: Vector3 = triangle.c - c;
+
+    // compute edge vectors for triangle
+    f0 := v1 - v0;
+    f1 := v2 - v1;
+    f2 := v0 - v2;
+
+    // test axes a00..a22 (category 3)
+    // test axis a00
+    p0 = v0.z * v1.y - v0.y * v1.z;
+    p2 = v2.z * (v1.y - v0.y) - v2.z * (v1.z - v0.z);
+    r = e1 * abs(f0.z) + e2 * abs(f0.y);
+    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+
+    // repeat similar tests for remaining axes a01..a22
+    // test axes a01 and a02
+    p0 = v0.x * v1.z - v0.z * v1.x;
+    p2 = v2.x * (v1.z - v0.z) - v2.z * (v1.x - v0.x);
+    r = e0 * abs(f0.z) + e2 * abs(f0.x);
+    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+
+    // test axes a10 and a12
+    p0 = v0.z * v1.x - v0.x * v1.z;
+    p2 = v2.z * (v1.x - v0.x) - v2.x * (v1.z - v0.z);
+    r = e0 * abs(f0.z) + e2 * abs(f0.x);
+    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+
+    // test axes a20 and a21
+    p0 = v0.y * v1.x - v0.x * v1.y;
+    p2 = v2.y * (v1.x - v0.x) - v2.x * (v1.y - v0.y);
+    r = e0 * abs(f0.y) + e1 * abs(f0.x);
+    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+
+    // test axes a22
+    p0 = v0.y * v1.z - v0.z * v1.y;
+    p2 = v2.y * (v1.z - v0.z) - v2.z * (v1.y - v0.y);
+    r = e0 * abs(f0.y) + e1 * abs(f0.x);
+    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+
+    // test the three axes corresponding to the face normals of AABB b (category 1).
+    // exit if...
+    // ... [-e0, e0] and [min(v0.x,v1.x,v2.x), max(v0.x,v1.x,v2.x)] do not overlap
+    if max(v0.x, v1.x, v2.x) < -e0 || min(v0.x, v1.x, v2.x) > e0
+        return false;
+    // ... [-e1, e1] and [min(v0.y,v1.y,v2.y), max(v0.y,v1.y,v2.y)] do not overlap
+    if max(v0.y, v1.y, v2.y) < -e1 || min(v0.y, v1.y, v2.y) > e1
+        return false;
+    // ... [-e2, e2] and [min(v0.z,v1.z,v2.z), max(v0.z,v1.z,v2.z)] do not overlap
+    if max(v0.z, v1.z, v2.z) < -e2 || min(v0.z, v1.z, v2.z) > e2
+        return false;
+
+    // test separating axis corresponding to triangle face normal (category 2)
+    plane: Plane3 = ---;
+    plane.n = cross(f0, f1);
+    plane.d = dot(plane.n, v0);
+
+    // aabb, plane
+    return inline intersects(aabb, plane);
 }
 
 intersection :: (aabb: AABB2, ray: Ray2) -> Vector2, bool {
@@ -1789,6 +1903,38 @@ intersection :: (triangle: Triangle3, ray: Ray3) -> Vector3, Vector3, bool {
     return ray.p + ray.dir * t, n, true;
 }
 
+intersection :: (triangle: Triangle3, line: Line3) -> Vector3, bool {
+    using triangle;
+
+    p := line.p1;
+    q := line.p2;
+
+    pq := q - p;
+    pa := a - p;
+    pb := b - p;
+    pc := c - p;
+
+    // test if pq is inside edges bc, ca, ab
+    m := cross(pq, pc);
+
+    u := dot(pb, m);
+    if u < 0 return .{}, false;
+
+    v := -dot(pa, m);
+    if v < 0 return .{}, false;
+
+    w := scalar_triple(pq, pb, pa);
+    if w < 0 return .{}, false;
+
+    denom := 1.0 / (u + v + w);
+
+    u *= denom;
+    v *= denom;
+    w *= denom;
+
+    return u * a + v * b + w * c, true;
+}
+
 intersects :: (triangle: Triangle3, point: Vector3) -> bool {
     // p204
     // Translate point and triangle so that point lies at origin
@@ -2181,6 +2327,66 @@ reverse :: (v: *[] Vector2) {
     }
 }
 
+// frustum stuff
+create_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
+    directions: [5] Vector3 : .[.{0, 0, -1}, .{1, 0, -1}, .{-1, 0, -1}, .{0, 1, -1}, .{0, -1, -1}];
+
+    inverse_projection := inverse(projection);
+    inverse_view := inverse(view);
+
+    camera_point := transform_point(inverse_view, .{0, 0, 0});
+
+    frustum := Frustum.{
+        camera_point,
+        directions,
+    };
+
+    frustum.normals[0] = transform_point(inverse_projection, frustum.normals[0]);
+    frustum.normals[0].z = -1;
+    frustum.normals[0] = transform_vector(inverse_view, frustum.normals[0]);
+    frustum.normals[1] = transform_point(inverse_projection, frustum.normals[1]);
+    frustum.normals[1].z = -1;
+    frustum.normals[1] = transform_vector(inverse_view, frustum.normals[1]);
+    frustum.normals[2] = transform_point(inverse_projection, frustum.normals[2]);
+    frustum.normals[2].z = -1;
+    frustum.normals[2] = transform_vector(inverse_view, frustum.normals[2]);
+    frustum.normals[3] = transform_point(inverse_projection, frustum.normals[3]);
+    frustum.normals[3].z = -1;
+    frustum.normals[3] = transform_vector(inverse_view, frustum.normals[3]);
+    frustum.normals[4] = transform_point(inverse_projection, frustum.normals[4]);
+    frustum.normals[4].z = -1;
+    frustum.normals[4] = transform_vector(inverse_view, frustum.normals[4]);
+
+    frustum.normals[0] = normalize(frustum.normals[0]);
+    frustum.normals[1] = normalize(frustum.normals[1]);
+    frustum.normals[1] = normalize(cross(normalize(cross(frustum.normals[1], frustum.normals[0])), frustum.normals[1]));
+    frustum.normals[2] = normalize(frustum.normals[2]);
+    frustum.normals[2] = normalize(cross(normalize(cross(frustum.normals[2], frustum.normals[0])), frustum.normals[2]));
+    frustum.normals[3] = normalize(frustum.normals[3]);
+    frustum.normals[3] = normalize(cross(normalize(cross(frustum.normals[3], frustum.normals[0])), frustum.normals[3]));
+    frustum.normals[4] = normalize(frustum.normals[4]);
+    frustum.normals[4] = normalize(cross(normalize(cross(frustum.normals[4], frustum.normals[0])), frustum.normals[4]));
+
+    return frustum;
+}
+
+intersects :: (frustum: Frustum, position: Vector3, radius: float) -> bool {
+    d_values: [5] float = ---;
+    d_values[0] = dot(frustum.point, frustum.normals[0]);
+    d_values[1] = dot(frustum.point, frustum.normals[1]);
+    d_values[2] = dot(frustum.point, frustum.normals[2]);
+    d_values[3] = dot(frustum.point, frustum.normals[3]);
+    d_values[4] = dot(frustum.point, frustum.normals[4]);
+
+    inside := dot(position, frustum.normals[0]) - d_values[0] >= -radius;
+    inside = inside && dot(position, frustum.normals[1]) - d_values[1] >= -radius;
+    inside = inside && dot(position, frustum.normals[2]) - d_values[2] >= -radius;
+    inside = inside && dot(position, frustum.normals[3]) - d_values[3] >= -radius;
+    inside = inside && dot(position, frustum.normals[4]) - d_values[4] >= -radius;
+
+    return inside;
+}
+
 // matrix stuff
 make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
     return make_rotation_matrix4(axis, radians);
@@ -2308,6 +2514,10 @@ project :: (dest: Vector2, src: Vector2) -> Vector2 {
 
 project_direction :: (normal: Vector3, direction: Vector3) -> Vector3 {
     return direction - dot(normal, direction) * normal;
+}
+
+scalar_triple :: (u: Vector3, v: Vector3, w: Vector3) -> float {
+    return dot(cross(u, v), w);
 }
 
 // normalize :: (using v: Vector2) -> Vector2 #must {
@@ -2569,14 +2779,68 @@ roundi :: (value: float64) -> s64 {
     return cast(s64) floor(value + 0.5);
 }
 
-sign :: (value: int) -> int {
-    if value < 0 {
-        return -1;
-    } else if value > 0 {
-        return 1;
-    }
+quick_sin :: (t: float) -> float {
+    // TODO is this really faster? I haven't tested it
+    // -1 = 0
+    // -0.5 = -1
+    // 0 = 0
+    // 0.5 = 1
+    // 1 = 0
+    return 4.0 * (abs(t) - t * t) * sign(t);
+}
 
-    return 0;
+hermite_ease_in_out :: (t: float) -> float {
+    n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
+    n2: float = t * t * t - 2.0 * t * t + t;
+    n3: float = -2.0 * t * t * t + 3.0 * t * t;
+    n4: float = t * t * t - t * t;
+
+    return n1 + n2 + n3 + n4;
+}
+
+bezier_ease_in_out :: (t: float) -> float {
+    u := 1.0 - t;
+    w3 := 3.0 * u * t * t;
+    w4 := t * t * t;
+    return w3 + w4;
+}
+
+ease_in_out :: (t: float) -> float {
+    if t < 0.5 {
+        return 2 * t * t;
+    } else {
+        p := -2 * t + 2;
+        return 1 - p * p / 2;
+    }
+}
+
+undo_ease_in_out :: (v: float) -> float {
+    if v < 0.5 {
+        // v = 2 * t * t
+        // v / 2 = t * t
+        // sqrt(v / 2) = t
+        return sqrt(v / 2);
+    } else {
+        // v = 1 - (-2 * t + 2)^2 / 2
+        // v - 1 = -(-2 * t + 2)^2 / 2
+        // 1 - v = (-2 * t + 2)^2 / 2
+        // 2 - 2 * v = (-2 * t + 2)^2
+        // sqrt(2 - 2 * v) = -2 * t + 2
+        // sqrt(2 - 2 * v) - 2 = -2 * t
+        // (sqrt(2 - 2 * v) - 2) / -2 = t
+        return sqrt(2 - 2 * v) / -2 + 1;
+    }
+}
+
+sign :: (value: int) -> int {
+    return cast(int) (0.0 < value) - cast(int) (value < 0.0);
+    // if value < 0 {
+    //     return -1;
+    // } else if value > 0 {
+    //     return 1;
+    // }
+
+    // return 0;
 }
 
 dot :: (a: float, b: float) -> float {
@@ -2584,23 +2848,25 @@ dot :: (a: float, b: float) -> float {
 }
 
 sign :: (value: float) -> float {
-    if value < 0 {
-        return -1;
-    } else if value > 0 {
-        return 1;
-    }
+    return cast(float) (cast(int) (0.0 < value) - cast(int) (value < 0.0));
+    // if value < 0 {
+    //     return -1;
+    // } else if value > 0 {
+    //     return 1;
+    // }
 
-    return 0;
+    // return 0;
 }
 
 sign :: (value: float64) -> float64 {
-    if value < 0 {
-        return -1;
-    } else if value > 0 {
-        return 1;
-    }
+    return cast(float64) (cast(int) (0.0 < value) - cast(int) (value < 0.0));
+    // if value < 0 {
+    //     return -1;
+    // } else if value > 0 {
+    //     return 1;
+    // }
 
-    return 0;
+    // return 0;
 }
 
 radians_between :: (start: float, end: float) -> float {
