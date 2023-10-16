@@ -1787,6 +1787,10 @@ contains :: (outer: AABB2, inner: AABB2) -> bool {
     return result;
 }
 
+contains :: (aabb: AABB3, point: Vector3) -> bool {
+    return point.x >= aabb.lower.x && point.y >= aabb.lower.y && point.z >= aabb.lower.z && point.x < aabb.upper.x && point.y < aabb.upper.y && point.z < aabb.upper.z;
+}
+
 contains :: (aabb: AABB2, point: Vector2) -> bool {
     return point.x >= aabb.lower.x && point.y >= aabb.lower.y && point.x < aabb.upper.x && point.y < aabb.upper.y;
 }
@@ -1796,6 +1800,31 @@ round :: (aabb: AABB2) -> AABB2 {
     r.lower = round(aabb.lower);
     r.upper = round(aabb.upper);
     return r;
+}
+
+get_center :: (aabb: AABB3) -> Vector3 {
+    return aabb.lower / 2.0 + aabb.upper / 2.0;
+}
+
+get_radius :: (aabb: AABB3) -> float {
+    center := get_center(aabb);
+
+    aabb_points: [8] Vector3 = ---;
+    aabb_points[0] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.lower.z};
+    aabb_points[1] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.upper.z};
+    aabb_points[2] = Vector3.{aabb.lower.x, aabb.upper.y, aabb.lower.z};
+    aabb_points[3] = Vector3.{aabb.lower.x, aabb.upper.y, aabb.upper.z};
+    aabb_points[4] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.lower.z};
+    aabb_points[5] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.upper.z};
+    aabb_points[6] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.lower.z};
+    aabb_points[7] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.upper.z};
+
+    max_r2 := 0.0;
+    for point: aabb_points {
+        max_r2 = max(max_r2, distance_squared(center, point));
+    }
+
+    return sqrt(max_r2);
 }
 
 operator + :: (aabb: AABB2, v: Vector2) -> AABB2 #symmetric {
@@ -1858,6 +1887,10 @@ is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 // triangle stuff
 operator == :: (a: Triangle3, b: Triangle3) -> bool {
     return a.a == b.a && a.b == b.b && a.c == b.c;    
+}
+
+get_normal :: (triangle: Triangle3) -> Vector3 {
+    return normalize(cross(triangle.b - triangle.a, triangle.c - triangle.a));
 }
 
 intersection :: (triangle: Triangle3, ray: Ray3) -> Vector3, Vector3, bool {
@@ -2388,8 +2421,14 @@ intersects :: (frustum: Frustum, position: Vector3, radius: float) -> bool {
 }
 
 // matrix stuff
-make_rotation_matrix4 :: (axis: Vector3, radians: float) -> Matrix4 {
-    return make_rotation_matrix4(axis, radians);
+make_rotation_matrix_from_velocity :: (velocity: Vector3) -> Matrix4 {
+    yaw := PI / 2.0 - atan2(velocity.z, velocity.x);
+    pitch := atan2(velocity.y, sqrt(velocity.x * velocity.x + velocity.z * velocity.z));
+
+    matrix := Matrix4Identity;
+    matrix = rotate(rotate(matrix, make_rotation_quaternion(.{0, 1, 0}, yaw)), make_rotation_quaternion(.{1, 0, 0}, -pitch));
+
+    return matrix;
 }
 
 get_scale :: (mat: Matrix4) -> Vector3 {
@@ -2621,30 +2660,32 @@ is_backward :: (a: Vector2, b: Vector2) -> bool {
 }
 
 hermite :: (points: [2] Vector2, tangents: [2] Vector2, t: float) -> Vector2 {
-    n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
-    n2: float = t * t * t - 2.0 * t * t + t;
-    n3: float = -2.0 * t * t * t + 3.0 * t * t;
-    n4: float = t * t * t - t * t;
+    n1 := 2.0 * t * t * t - 3.0 * t * t + 1.0;
+    n2 := t * t * t - 2.0 * t * t + t;
+    n3 := -2.0 * t * t * t + 3.0 * t * t;
+    n4 := t * t * t - t * t;
 
-    vector: Vector2 = ---;
-    vector.x = n1 * points[0].x + n2 * tangents[0].x + n3 * points[1].x + n4 * tangents[1].x;
-    vector.y = n1 * points[0].y + n2 * tangents[0].y + n3 * points[1].y + n4 * tangents[1].y;
-
-    return vector;
+    return n1 * points[0] + n2 * tangents[0] + n3 * points[1] + n4 * tangents[1];
 }
 
 hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
-    n1: float = 2.0 * t * t * t - 3.0 * t * t + 1.0;
-    n2: float = t * t * t - 2.0 * t * t + t;
-    n3: float = -2.0 * t * t * t + 3.0 * t * t;
-    n4: float = t * t * t - t * t;
+    n1 := 2.0 * t * t * t - 3.0 * t * t + 1.0;
+    n2 := t * t * t - 2.0 * t * t + t;
+    n3 := -2.0 * t * t * t + 3.0 * t * t;
+    n4 := t * t * t - t * t;
 
-    vector: Vector3 = ---;
-    vector.x = n1 * points[0].x + n2 * tangents[0].x + n3 * points[1].x + n4 * tangents[1].x;
-    vector.y = n1 * points[0].y + n2 * tangents[0].y + n3 * points[1].y + n4 * tangents[1].y;
-    vector.z = n1 * points[0].z + n2 * tangents[0].z + n3 * points[1].z + n4 * tangents[1].z;
+    return n1 * points[0] + n2 * tangents[0] + n3 * points[1] + n4 * tangents[1];
+}
 
-    return vector;
+hermite_velocity :: inline (positions: [2] Vector3, velocities: [2] Vector3, t: float) -> Vector3 {
+    n1 := 6.0 * t * t - 6.0 * t;
+    n2 := 6.0 * t - 6.0 * t * t;
+    n3 := 3.0 * t * t;
+    n4 := t;
+
+    return positions[0] * n1 + positions[1] * n2 + (velocities[0] + velocities[1]) * n3 + (-4.0 * velocities[0] - 2 * velocities[1]) * n4 + velocities[0];
+
+    // return n1 * positions[0] + n2 * velocities[0] + n3 * positions[1] + n4 * velocities[1];
 }
 
 round :: (v: Vector2) -> Vector2 {
@@ -2779,6 +2820,19 @@ roundi :: (value: float64) -> s64 {
     return cast(s64) floor(value + 0.5);
 }
 
+inverse_quick_sin :: (v: float) -> float {
+    return 0.5 * (1.0 - sqrt(1.0 - abs(v))) * sign(v);
+}
+
+pow :: (v: float, i: int) -> float {
+    value := 1.0;
+    for i: 0..i - 1 {
+        value *= v;
+    }
+
+    return value;
+}
+
 quick_sin :: (t: float) -> float {
     // TODO is this really faster? I haven't tested it
     // -1 = 0
@@ -2867,6 +2921,14 @@ sign :: (value: float64) -> float64 {
     // }
 
     // return 0;
+}
+
+mod_radians :: (radians: float) -> float {
+    // from -PI to PI
+    percent := radians / PI / 2.0 + 0.5;
+    // this should move something like -1.5PI to 0.5PI
+    percent -= floor(percent);
+    return percent * PI * 2 - PI;
 }
 
 radians_between :: (start: float, end: float) -> float {
