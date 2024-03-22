@@ -34,8 +34,26 @@ create_aabb3 :: (lower: Vector3, upper: Vector3) -> AABB3 {
     return aabb;
 }
 
+Plane3_64 :: union {
+    struct {
+        a, b, c, d : float64;
+    }
+    
+    n: Vector3_64;
+}
+
 create_plane3 :: (p: Vector3, n: Vector3) -> Plane3 {
     result: Plane3 = ---;
+    result.a = n.x;
+    result.b = n.y;
+    result.c = n.z;
+    result.d = dot(n, p);
+
+    return result;
+}
+
+create_plane3_64 :: (p: Vector3_64, n: Vector3_64) -> Plane3_64 {
+    result: Plane3_64 = ---;
     result.a = n.x;
     result.b = n.y;
     result.c = n.z;
@@ -102,6 +120,48 @@ Line3 :: struct {
     p1: Vector3;
     p2: Vector3;
 }
+
+Vector2_64 :: struct {
+    x, y: float64;
+
+#place x;
+    component: [2] float64 = ---;
+}
+
+Vector3_64 :: struct {
+    x, y, z: float64;
+
+#place x;
+    xy: Vector2_64 = ---;
+#place y;
+    yz: Vector2_64 = ---;
+
+#place x;
+    component: [3] float64 = ---;
+}
+
+Vector4_64 :: struct {
+    x, y, z, w: float64;
+
+#place x;
+    xy: Vector2_64 = ---;
+#place y;
+    yz: Vector2_64 = ---;
+#place z;
+    zw: Vector2_64 = ---;
+#place x;
+    xyz: Vector3_64 = ---;
+#place y;
+    yzw: Vector3_64 = ---;
+#place x;
+    component: [4] float64 = ---;
+}
+
+Matrix3Identity :: Matrix3.{
+    1, 0, 0,
+    0, 1, 0,
+    0, 0, 1,
+};
 
 Matrix4Identity :: Matrix4.{
     1, 0, 0, 0,
@@ -1212,7 +1272,7 @@ inside :: (plane: Plane3, sphere: Sphere) -> bool {
     return dist < -sphere.r;
 }
 
-nearest_point :: (plane: Plane3, point: Vector3) -> Vector3 {
+nearest_point :: (plane: $T/AnyPlane3, point: $P/AnyVector3) -> P {
     // p127
     #if DEBUG validate_unit_vector(plane.n);
     
@@ -1225,6 +1285,53 @@ distance :: (plane: Plane3, point: Vector3) -> float {
 
     return dot(point, plane.n) - plane.d;
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
+}
+
+// this function is just going to assume up is 0, 1, 0 and correct it arbitrarily since that's the behavior I currently need
+// returns the 2d coordinates in the newly determined system
+// it also returns the right and up vectors in 3d space
+convert_coordinates :: (plane: Plane3, point: Vector3) -> Vector2, Vector3, Vector3 {
+    #if DEBUG validate_unit_vector(plane.n);
+
+    up := Vector3.{0, 1, 0};
+    if 1.0 - abs(dot(plane.n, up)) < 0.00001 {
+        up = Vector3.{0, 0, -1};
+    }
+
+    // TODO remove
+    #run assert(cross(.{0, 0, -1}, .{0, 1, 0}).x > 0.9999, "Sanity check... Remove this.\n");
+    #run assert(cross(.{1, 0, 0}, .{0, 0, -1}).y > 0.9999, "Sanity check... Remove this.\n");
+
+    projected := nearest_point(plane, point);
+    plane_right := normalize(cross(plane.n, up));
+    plane_up := normalize(cross(plane_right, plane.n));
+
+    // this could be more accurate in some scenarios if you provide your own center, just like providing your own up might be better in some scenarios
+    origin := nearest_point(plane, .{0, 0, 0});
+
+    point_delta := projected - origin;
+
+    return Vector2.{dot(point_delta, plane_right), dot(point_delta, plane_up)}, plane_right, plane_up;
+}
+
+convert_coordinates :: (plane: Plane3_64, point: Vector3_64) -> Vector2_64, Vector3_64, Vector3_64 {
+    #if DEBUG validate_unit_vector(plane.n);
+
+    up := Vector3_64.{0, 1, 0};
+    if 1.0 - abs(dot(plane.n, up)) < 0.00001 {
+        up = Vector3_64.{0, 0, -1};
+    }
+
+    projected := nearest_point(plane, point);
+    plane_right := normalize(cross(plane.n, up));
+    plane_up := normalize(cross(plane_right, plane.n));
+
+    // this could be more accurate in some scenarios if you provide your own center, just like providing your own up might be better in some scenarios
+    origin := nearest_point(plane, Vector3_64.{0, 0, 0});
+
+    point_delta := projected - origin;
+
+    return Vector2_64.{dot(point_delta, plane_right), dot(point_delta, plane_up)}, plane_right, plane_up;
 }
 
 // circle stuff
@@ -1266,7 +1373,7 @@ nearest_point :: (circle: Circle3, ray: Ray3) -> Vector3 {
 }
 
 // aabb stuff
-transform_aabb :: (matrix: Matrix4, aabb: AABB3) -> AABB3 {
+get_aabb_points :: (aabb: AABB3) -> [8] Vector3 {
     aabb_points: [8] Vector3 = ---;
     aabb_points[0] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.lower.z};
     aabb_points[1] = Vector3.{aabb.lower.x, aabb.lower.y, aabb.upper.z};
@@ -1276,6 +1383,11 @@ transform_aabb :: (matrix: Matrix4, aabb: AABB3) -> AABB3 {
     aabb_points[5] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.upper.z};
     aabb_points[6] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.lower.z};
     aabb_points[7] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.upper.z};
+    return aabb_points;
+}
+
+transform_aabb :: (matrix: Matrix4, aabb: AABB3) -> AABB3 {
+    aabb_points := get_aabb_points(aabb);
 
     transformed: AABB3 = ---;
     transformed.lower = inline transform_point(matrix, aabb_points[0]);
@@ -1394,7 +1506,7 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
     // p180
     #if DEBUG validate_unit_vector(ray.dir);
 
-    << t = 0; // set to -FLT_MAX to get first hit on line
+    t.* = 0; // set to -FLT_MAX to get first hit on line
     tmax := FLOAT32_MAX; // set to max distance ray can travel (for segment)
     // For all three slabs
     if abs(ray.dir.x) < EPSILON {
@@ -2204,6 +2316,79 @@ nearest_point :: (line: Line3, ray: Ray3) -> Vector3 {
     return nearest_point(line, line_ray_nearest);
 }
 
+nearest_point :: (line1: Line2, line2: Line2) -> float, Vector2, Vector2 {
+    p1 := line1.p1;
+    q1 := line1.p2;
+    p2 := line2.p1;
+    q2 := line2.p2;
+
+    d1: Vector2 = q1 - p1; // Direction vector of segment S1
+    d2: Vector2 = q2 - p2; // Direction vector of segment S2
+    r: Vector2 = p1 - p2;
+    a: float = dot(d1, d1); // Squared length of segment S1, always nonnegative
+    e: float = dot(d2, d2); // Squared length of segment S2, always nonnegative
+    f: float = dot(d2, r);
+
+    s: float;
+    t: float;
+    c1: Vector2;
+    c2: Vector2;
+    
+    // Check if either or both segments degenerate into points
+    if a <= EPSILON && e <= EPSILON {
+        // Both segments degenerate into points
+        s = 0.0;
+        t = 0.0;
+        c1 = p1;
+        c2 = p2;
+
+        return dot(c1 - c2, c1 - c2);
+    }
+
+    if a <= EPSILON {
+        // First segment degenerates into a point
+        s = 0.0;
+        t = f / e; // s = 0 => t = (b*s + f) / e = f / e
+        t = clamp(t, 0.0, 1.0);
+    } else {
+        c: float = dot(d1, r);
+        if e <= EPSILON {
+            // Second segment degenerates into a point
+            t = 0.0;
+            // t = 0 => s = (b*t - c) / a = -c / a
+            s = clamp(-c / a, 0.0, 1.0); 
+        } else {
+            // The general nondegenerate case starts here
+            b: float = dot(d1, d2);
+            denom: float = a * e - b * b; // Always nonnegative
+            // If segments not parallel, compute closest point on L1 to L2 and
+            // clamp to segment S1. Else pick arbitrary s (here 0)
+            if denom != 0.0 {
+                s = clamp((b * f - c * e) / denom, 0.0, 1.0);
+            } else {
+                s = 0.0;
+            }
+            // Compute point on L2 closest to S1(s) using
+            // t = Dot((P1 + D1*s) - P2,D2) / Dot(D2,D2) = (b*s + f) / e
+            t = (b * s + f) / e;
+            // If t in [0,1] done. Else clamp t, recompute s for the new value
+            // of t using s = Dot((P2 + D2*t) - P1,D1) / Dot(D1,D1)= (t*b - c) / a
+            // and clamp s to [0, 1]
+            if t < 0.0 {
+                t = 0.0;
+                s = clamp(-c / a, 0.0, 1.0);
+            } else if t > 1.0 {
+                t = 1.0;
+                s = clamp((b - c) / a, 0.0, 1.0);
+            }
+        }
+    }
+
+    c1 = p1 + d1 * s;
+    c2 = p2 + d2 * t;
+    return c1, c2, dot(c1 - c2, c1 - c2);
+}
+
 intersection :: (line1: Line2, line2: Line2) -> Vector2, bool {
     t: float = 0;
     vector, value := intersection(line1, line2, *t);
@@ -2431,6 +2616,34 @@ make_rotation_matrix_from_velocity :: (velocity: Vector3) -> Matrix4 {
     return matrix;
 }
 
+make_translation_matrix3 :: (v: Vector2) -> Matrix3 #must {
+    m := Matrix3Identity;
+
+    m._13 = v.x;
+    m._23 = v.y;
+
+    return m;
+}
+
+translate :: (m: Matrix3, v: Vector2) -> Matrix3 #must {
+    result := m;
+    inline translate(*result, v);
+    return result;
+}
+
+translate :: (m: *Matrix3, v: Vector2) {
+    m.coef[0][2] += m.coef[0][0] * v.x + m.coef[0][1] * v.y;
+    m.coef[1][2] += m.coef[1][0] * v.x + m.coef[1][1] * v.y;
+    m.coef[2][2] += m.coef[2][0] * v.x + m.coef[2][1] * v.y;
+}
+
+transform_point :: (m: Matrix3, v: Vector2) -> Vector2 {
+    result: Vector2 = ---;
+    result.x = m._11 * v.x + m._12 * v.y + m._13;
+    result.y = m._21 * v.x + m._22 * v.y + m._23;
+    return result;
+}
+
 get_scale :: (mat: Matrix4) -> Vector3 {
     column := mat.v[0];
 
@@ -2472,7 +2685,7 @@ make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     l_ang := ifx radians < 0 then PI_2 - (fmod_cycling(-radians, PI_2)) else fmod_cycling(radians, PI_2);
     l_sin := sin(l_ang / 2);
     l_cos := cos(l_ang / 2);
-    return normalize(make_quaternion(d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos));
+    return normalize(Quaternion.{d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos});
 }
 
 normalize :: (using quat: Quaternion) -> Quaternion {
@@ -2482,7 +2695,7 @@ normalize :: (using quat: Quaternion) -> Quaternion {
     }
 
     factor := 1.0 / sq;
-    return make_quaternion(x * factor, y * factor, z * factor, w * factor);
+    return Quaternion.{x * factor, y * factor, z * factor, w * factor};
 }
 
 quat_radians_between :: (qa: Quaternion, qb: Quaternion) -> float {
@@ -2543,7 +2756,7 @@ quat_slerp :: (qa: Quaternion, qb1: Quaternion, t: float) -> Quaternion {
 }
 
 // vector stuff
-project :: (dest: Vector3, src: Vector3) -> Vector3 {
+project :: (dest: $T/AnyVector3, src: T) -> T {
     return (dot(src, dest) / dot(dest, dest)) * dest;
 }
 
@@ -2587,16 +2800,14 @@ inverse_project :: (dest: Vector2, src: Vector2) -> Vector2 {
 }
 
 rotate :: (vector: Vector3, axis: Vector3, radians: float) -> Vector3 {
-    direction := make_vector4(vector.x, vector.y, vector.z, 1);
-    return (make_rotation_matrix4(axis, radians) * direction).xyz;
+    rotation_quaternion: Quaternion;
+    set_from_axis_and_angle(*rotation_quaternion, axis, radians);
+
+    return rotate(vector, rotation_quaternion);
 }
 
 perp :: (vector: Vector2) -> Vector2 {
     return xy(-vector.y, vector.x);
-}
-
-distance_squared :: (a: Vector2, b: Vector2) -> float {
-    return length_squared(a - b);
 }
 
 length_squared :: (a: Vector2) -> float {
@@ -2703,6 +2914,28 @@ round :: (v: Vector3) -> Vector3 {
     return r;
 }
 
+floor :: (v: Vector2) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = floor(v.x);
+    r.y = floor(v.y);
+    return r;
+}
+
+ceil :: (v: Vector3) -> Vector3 {
+    r: Vector3 = ---;
+    r.x = ceil(v.x);
+    r.y = ceil(v.y);
+    r.z = ceil(v.z);
+    return r;
+}
+
+ceil :: (v: Vector2) -> Vector2 {
+    r: Vector2 = ---;
+    r.x = ceil(v.x);
+    r.y = ceil(v.y);
+    return r;
+}
+
 normalize :: (v: Vector2) -> Vector2 {
     len2 := v.x * v.x + v.y * v.y;
     if len2 == 0 {
@@ -2803,6 +3036,256 @@ operator - :: (a: float, b: Vector3) -> Vector3 {
     return r;
 }
 
+// vector 64 stuff
+normalize :: (v: *Vector3_64, epsilon := 0.0, fallback := Vector3_64.{}) -> float64 {
+    sq := length(v);
+    if sq <= epsilon {
+        v.* = fallback;
+        return sq;
+    }
+
+    factor := 1 / sq;
+    v.x *= factor;
+    v.y *= factor;
+    v.z *= factor;
+
+    return sq;
+} @NoProfile
+
+normalize :: (v: Vector3_64, epsilon := 0.0, fallback := Vector3_64.{}) -> Vector3_64 {
+    w := v;
+    normalize(*w, epsilon, fallback);
+    return w;
+} @NoProfile
+
+cross :: (a: Vector2_64, b: Vector2_64) -> float64 {
+    // p205
+    return a.y * b.x - a.x * b.y;
+}
+
+cross :: (a: Vector3_64, b: Vector3_64) -> Vector3_64 {
+    n: Vector3_64 = ---;
+
+    n.x = a.y * b.z - a.z * b.y;
+    n.y = a.z * b.x - a.x * b.z;
+    n.z = a.x * b.y - a.y * b.x;
+
+    return n;
+}
+
+dot :: (a: Vector2_64, b: Vector2_64) -> float64 {
+    return a.x * b.x + a.y * b.y;
+}
+
+dot :: (a: Vector3_64, b: Vector3_64) -> float64 {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+length :: (a: Vector2_64) -> float64 {
+    return sqrt(a.x * a.x + a.y * a.y);
+}
+
+length :: (a: Vector3_64) -> float64 {
+    return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+}
+
+round :: (v: Vector2_64) -> Vector2_64 {
+    r: Vector2_64 = ---;
+    r.x = round(v.x);
+    r.y = round(v.y);
+    return r;
+}
+
+round :: (v: Vector3_64) -> Vector3_64 {
+    r: Vector3_64 = ---;
+    r.x = round(v.x);
+    r.y = round(v.y);
+    r.z = round(v.z);
+    return r;
+}
+
+floor :: (v: Vector2_64) -> Vector2_64 {
+    r: Vector2_64 = ---;
+    r.x = floor(v.x);
+    r.y = floor(v.y);
+    return r;
+}
+
+floor :: (v: Vector3_64) -> Vector2_64 {
+    r: Vector3_64 = ---;
+    r.x = floor(v.x);
+    r.y = floor(v.y);
+    r.z = floor(v.z);
+    return r;
+}
+
+ceil :: (v: Vector2_64) -> Vector2_64 {
+    r: Vector2_64 = ---;
+    r.x = ceil(v.x);
+    r.y = ceil(v.y);
+    return r;
+}
+
+ceil :: (v: Vector3_64) -> Vector3_64 {
+    r: Vector3_64 = ---;
+    r.x = ceil(v.x);
+    r.y = ceil(v.y);
+    r.z = ceil(v.z);
+    return r;
+}
+
+operator + :: (a: Vector2_64, b: Vector2_64) -> Vector2_64 {
+    return .{a.x + b.x, a.y + b.y};
+}
+
+operator + :: (a: Vector3_64, b: Vector3_64) -> Vector3_64 {
+    return .{a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+operator += :: (a: *Vector2_64, b: Vector2_64) {
+    a.x += b.x;
+    a.y += b.y;
+}
+
+operator += :: (a: *Vector3_64, b: Vector3_64) {
+    a.x += b.x;
+    a.y += b.y;
+    a.z += b.z;
+}
+
+operator + :: (a: Vector2_64, b: float64) -> Vector2_64 #symmetric {
+    return .{a.x + b, a.y + b};
+}
+
+operator + :: (a: Vector3_64, b: float64) -> Vector3_64 #symmetric {
+    return .{a.x + b, a.y + b, a.z + b};
+}
+
+operator += :: (a: *Vector2_64, b: float64) {
+    a.x += b;
+    a.y += b;
+}
+
+operator += :: (a: *Vector3_64, b: float64) {
+    a.x += b;
+    a.y += b;
+    a.z += b;
+}
+
+operator - :: (a: Vector2_64, b: Vector2_64) -> Vector2_64 {
+    return .{a.x - b.x, a.y - b.y};
+}
+
+operator - :: (a: Vector3_64, b: Vector3_64) -> Vector3_64 {
+    return .{a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+operator -= :: (a: *Vector2_64, b: Vector2_64) {
+    a.x -= b.x;
+    a.y -= b.y;
+}
+
+operator -= :: (a: *Vector3_64, b: Vector3_64) {
+    a.x -= b.x;
+    a.y -= b.y;
+    a.z -= b.z;
+}
+
+operator - :: (a: Vector2_64, b: float64) -> Vector2_64 {
+    return .{a.x - b, a.y - b};
+}
+
+operator - :: (a: Vector3_64, b: float64) -> Vector3_64 {
+    return .{a.x - b, a.y - b, a.z - b};
+}
+
+operator -= :: (a: *Vector2_64, b: float64) {
+    a.x -= b;
+    a.y -= b;
+}
+
+operator -= :: (a: *Vector3_64, b: float64) {
+    a.x -= b;
+    a.y -= b;
+    a.z -= b;
+}
+
+operator * :: (a: Vector2_64, b: Vector2_64) -> Vector2_64 {
+    return .{a.x * b.x, a.y * b.y};
+}
+
+operator * :: (a: Vector3_64, b: Vector3_64) -> Vector3_64 {
+    return .{a.x * b.x, a.y * b.y, a.z * b.z};
+}
+
+operator *= :: (a: *Vector2_64, b: Vector2_64) {
+    a.x *= b.x;
+    a.y *= b.y;
+}
+
+operator *= :: (a: *Vector3_64, b: Vector3_64) {
+    a.x *= b.x;
+    a.y *= b.y;
+    a.z *= b.z;
+}
+
+operator * :: (a: Vector2_64, b: float64) -> Vector2_64 #symmetric {
+    return .{a.x * b, a.y * b};
+}
+
+operator * :: (a: Vector3_64, b: float64) -> Vector3_64 #symmetric {
+    return .{a.x * b, a.y * b, a.z * b};
+}
+
+operator *= :: (a: *Vector2_64, b: float64) {
+    a.x *= b;
+    a.y *= b;
+}
+
+operator *= :: (a: *Vector3_64, b: float64) {
+    a.x *= b;
+    a.y *= b;
+    a.z *= b;
+}
+
+operator / :: (a: Vector2_64, b: Vector2_64) -> Vector2_64 {
+    return .{a.x / b.x, a.y / b.y};
+}
+
+operator / :: (a: Vector3_64, b: Vector3_64) -> Vector3_64 {
+    return .{a.x / b.x, a.y / b.y, a.z / b.z};
+}
+
+operator /= :: (a: *Vector2_64, b: Vector2_64) {
+    a.x /= b.x;
+    a.y /= b.y;
+}
+
+operator /= :: (a: *Vector3_64, b: Vector3_64) {
+    a.x /= b.x;
+    a.y /= b.y;
+    a.z /= b.z;
+}
+
+operator / :: (a: Vector2_64, b: float64) -> Vector2_64 #symmetric {
+    return .{a.x / b, a.y / b};
+}
+
+operator / :: (a: Vector3_64, b: float64) -> Vector3_64 #symmetric {
+    return .{a.x / b, a.y / b, a.z / b};
+}
+
+operator /= :: (a: *Vector2_64, b: float64) {
+    a.x /= b;
+    a.y /= b;
+}
+
+operator /= :: (a: *Vector3_64, b: float64) {
+    a.x /= b;
+    a.y /= b;
+    a.z /= b;
+}
+
 // float stuff
 round :: (value: float) -> float {
     return floor(value + 0.5);
@@ -2859,6 +3342,26 @@ bezier_ease_in_out :: (t: float) -> float {
     return w3 + w4;
 }
 
+quadratic_ease_out :: (t: float) -> float {
+    return -t * (t - 2.0);
+}
+
+quadratic_ease_in :: (t: float) -> float {
+    return t * t;
+}
+
+quadratic_ease_in_out :: (t: float) -> float {
+    if t == 0 || t == 1 {
+        return t;
+    }
+
+    if t < 0.5 {
+        return 0.5 * pow(2.0, (20.0 * t) - 10.0);
+    } else {
+        return -0.5 * pow(2.0, 10.0 - (t * 20.0)) + 1.0;
+    }
+}
+
 ease_in_out :: (t: float) -> float {
     if t < 0.5 {
         return 2 * t * t;
@@ -2886,8 +3389,10 @@ undo_ease_in_out :: (v: float) -> float {
     }
 }
 
+fmod :: fmod_cycling;
+
 sign :: (value: int) -> int {
-    return cast(int) (0.0 < value) - cast(int) (value < 0.0);
+    return cast(int) (0 < value) - cast(int) (value < 0);
     // if value < 0 {
     //     return -1;
     // } else if value > 0 {
@@ -3413,6 +3918,7 @@ radians_between :: (start: float, end: float) -> float {
 }
 
 #scope_file
+
 #import "Basic";
 #import "Math";
 
@@ -3422,7 +3928,12 @@ PI_2 :: PI * 2;
 DEBUG :: true;
 INT_MATH :: false;
 
-validate_unit_vector :: inline (v: Vector2) {
+AnyPlane3 :: Type.[Plane3, Plane3_64];
+AnyVector2 :: Type.[Vector2, Vector2_64];
+AnyVector3 :: Type.[Vector3, Vector3_64];
+AnyVector4 :: Type.[Vector4, Vector4_64];
+
+validate_unit_vector :: inline (v: $T/AnyVector2) {
     if abs(length(v) - 1) > EPSILON {
         print("Invalid unit vector: %\nExiting.\n", v);
         print_stack_trace(context.stack_trace);
@@ -3430,7 +3941,7 @@ validate_unit_vector :: inline (v: Vector2) {
     }
 }
 
-validate_unit_vector :: inline (v: Vector3) {
+validate_unit_vector :: inline (v: $T/AnyVector3) {
     if abs(length(v) - 1) > EPSILON {
         print("Invalid unit vector: %\nExiting.\n", v);
         print_stack_trace(context.stack_trace);
@@ -3438,7 +3949,7 @@ validate_unit_vector :: inline (v: Vector3) {
     }
 }
 
-validate_ccw :: inline (v: [] Vector2) {
+validate_ccw :: inline (v: [] $T/AnyVector2) {
     if !is_ccw(v) {
         print("Invalid polygon winding. %\nExiting.\n", v);
         print_stack_trace(context.stack_trace);
