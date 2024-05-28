@@ -1939,6 +1939,14 @@ get_radius :: (aabb: AABB3) -> float {
     return sqrt(max_r2);
 }
 
+operator == :: (a: AABB2, b: AABB2) -> bool {
+    return a.lower == b.lower && a.upper == b.upper;
+}
+
+operator == :: (a: AABB3, b: AABB3) -> bool {
+    return a.lower == b.lower && a.upper == b.upper;
+}
+
 operator + :: (aabb: AABB2, v: Vector2) -> AABB2 #symmetric {
     r: AABB2 = ---;
     r.lower = aabb.lower + v;
@@ -2301,8 +2309,9 @@ distance :: (ray: Ray3, point: Vector3) -> float {
 }
 
 // TODO should really rename all of these to project
-nearest_point :: (ray: Ray2, point: Vector2) -> Vector2 {
-    return dot(point - ray.p, ray.dir) / dot(ray.dir, ray.dir) * ray.dir + ray.p;
+nearest_point :: (ray: Ray2, point: Vector2) -> Vector2, float {
+    t := dot(point - ray.p, ray.dir) / dot(ray.dir, ray.dir);
+    return t * ray.dir + ray.p, t;
 }
 
 // line stuff
@@ -2316,7 +2325,78 @@ nearest_point :: (line: Line3, ray: Ray3) -> Vector3 {
     return nearest_point(line, line_ray_nearest);
 }
 
-nearest_point :: (line1: Line2, line2: Line2) -> float, Vector2, Vector2 {
+nearest_point :: (line1: Line3, line2: Line3) -> p1: Vector3, p2: Vector3, t1: float, t2: float, d: float {
+    p1 := line1.p1;
+    q1 := line1.p2;
+    p2 := line2.p1;
+    q2 := line2.p2;
+
+    d1: Vector3 = q1 - p1; // Direction vector of segment S1
+    d2: Vector3 = q2 - p2; // Direction vector of segment S2
+    r: Vector3 = p1 - p2;
+    a: float = dot(d1, d1); // Squared length of segment S1, always nonnegative
+    e: float = dot(d2, d2); // Squared length of segment S2, always nonnegative
+    f: float = dot(d2, r);
+
+    s: float;
+    t: float;
+    c1: Vector3;
+    c2: Vector3;
+    
+    // Check if either or both segments degenerate into points
+    if a <= EPSILON && e <= EPSILON {
+        // Both segments degenerate into points
+        s = 0.0;
+        t = 0.0;
+        c1 = p1;
+        c2 = p2;
+
+        return c1, c2, 0, 0, dot(c1 - c2, c1 - c2);
+    } else if a <= EPSILON {
+        // First segment degenerates into a point
+        s = 0.0;
+        t = f / e; // s = 0 => t = (b*s + f) / e = f / e
+        t = clamp(t, 0.0, 1.0);
+    } else if e <= EPSILON {
+        c: float = dot(d1, r);
+        // Second segment degenerates into a point
+        t = 0.0;
+        // t = 0 => s = (b*t - c) / a = -c / a
+        s = clamp(-c / a, 0.0, 1.0); 
+    } else {
+        c: float = dot(d1, r);
+        // The general nondegenerate case starts here
+        b: float = dot(d1, d2);
+        denom: float = a * e - b * b; // Always nonnegative
+        // If segments not parallel, compute closest point on L1 to L2 and
+        // clamp to segment S1. Else pick arbitrary s (here 0)
+        if denom != 0.0 {
+            s = clamp((b * f - c * e) / denom, 0.0, 1.0);
+        } else {
+            s = 0.0;
+        }
+        // Compute point on L2 closest to S1(s) using
+        // t = Dot((P1 + D1*s) - P2,D2) / Dot(D2,D2) = (b*s + f) / e
+        t = (b * s + f) / e;
+        // If t in [0,1] done. Else clamp t, recompute s for the new value
+        // of t using s = Dot((P2 + D2*t) - P1,D1) / Dot(D1,D1)= (t*b - c) / a
+        // and clamp s to [0, 1]
+        if t < 0.0 {
+            t = 0.0;
+            s = clamp(-c / a, 0.0, 1.0);
+        } else if t > 1.0 {
+            t = 1.0;
+            s = clamp((b - c) / a, 0.0, 1.0);
+        }
+    }
+
+    c1 = p1 + d1 * s;
+    c2 = p2 + d2 * t;
+    return c1, c2, s, t, dot(c1 - c2, c1 - c2);
+}
+
+// I put #must here to be sure anything using this breaks since I'm adding more floats
+nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: float, t2: float #must, d: float #must {
     p1 := line1.p1;
     q1 := line1.p2;
     p2 := line2.p1;
@@ -2342,7 +2422,7 @@ nearest_point :: (line1: Line2, line2: Line2) -> float, Vector2, Vector2 {
         c1 = p1;
         c2 = p2;
 
-        return dot(c1 - c2, c1 - c2);
+        return c1, c2, 0, 0, dot(c1 - c2, c1 - c2);
     }
 
     if a <= EPSILON {
@@ -2350,43 +2430,42 @@ nearest_point :: (line1: Line2, line2: Line2) -> float, Vector2, Vector2 {
         s = 0.0;
         t = f / e; // s = 0 => t = (b*s + f) / e = f / e
         t = clamp(t, 0.0, 1.0);
+    } else if e <= EPSILON {
+        c: float = dot(d1, r);
+        // Second segment degenerates into a point
+        t = 0.0;
+        // t = 0 => s = (b*t - c) / a = -c / a
+        s = clamp(-c / a, 0.0, 1.0); 
     } else {
         c: float = dot(d1, r);
-        if e <= EPSILON {
-            // Second segment degenerates into a point
-            t = 0.0;
-            // t = 0 => s = (b*t - c) / a = -c / a
-            s = clamp(-c / a, 0.0, 1.0); 
+        // The general nondegenerate case starts here
+        b: float = dot(d1, d2);
+        denom: float = a * e - b * b; // Always nonnegative
+        // If segments not parallel, compute closest point on L1 to L2 and
+        // clamp to segment S1. Else pick arbitrary s (here 0)
+        if denom != 0.0 {
+            s = clamp((b * f - c * e) / denom, 0.0, 1.0);
         } else {
-            // The general nondegenerate case starts here
-            b: float = dot(d1, d2);
-            denom: float = a * e - b * b; // Always nonnegative
-            // If segments not parallel, compute closest point on L1 to L2 and
-            // clamp to segment S1. Else pick arbitrary s (here 0)
-            if denom != 0.0 {
-                s = clamp((b * f - c * e) / denom, 0.0, 1.0);
-            } else {
-                s = 0.0;
-            }
-            // Compute point on L2 closest to S1(s) using
-            // t = Dot((P1 + D1*s) - P2,D2) / Dot(D2,D2) = (b*s + f) / e
-            t = (b * s + f) / e;
-            // If t in [0,1] done. Else clamp t, recompute s for the new value
-            // of t using s = Dot((P2 + D2*t) - P1,D1) / Dot(D1,D1)= (t*b - c) / a
-            // and clamp s to [0, 1]
-            if t < 0.0 {
-                t = 0.0;
-                s = clamp(-c / a, 0.0, 1.0);
-            } else if t > 1.0 {
-                t = 1.0;
-                s = clamp((b - c) / a, 0.0, 1.0);
-            }
+            s = 0.0;
+        }
+        // Compute point on L2 closest to S1(s) using
+        // t = Dot((P1 + D1*s) - P2,D2) / Dot(D2,D2) = (b*s + f) / e
+        t = (b * s + f) / e;
+        // If t in [0,1] done. Else clamp t, recompute s for the new value
+        // of t using s = Dot((P2 + D2*t) - P1,D1) / Dot(D1,D1)= (t*b - c) / a
+        // and clamp s to [0, 1]
+        if t < 0.0 {
+            t = 0.0;
+            s = clamp(-c / a, 0.0, 1.0);
+        } else if t > 1.0 {
+            t = 1.0;
+            s = clamp((b - c) / a, 0.0, 1.0);
         }
     }
 
     c1 = p1 + d1 * s;
     c2 = p2 + d2 * t;
-    return c1, c2, dot(c1 - c2, c1 - c2);
+    return c1, c2, s, t, dot(c1 - c2, c1 - c2);
 }
 
 intersection :: (line1: Line2, line2: Line2) -> Vector2, bool {
@@ -2442,42 +2521,42 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
     return .{0, 0}, false;
 }
 
-nearest_point :: (line: Line2, point: Vector2) -> Vector2 {
-    t: float = 0;
-    return nearest_point(line, point, *t);
-}
-
-nearest_point :: (line: Line3, point: Vector3) -> Vector3 {
-    t: float = 0;
-    return nearest_point(line, point, *t);
-}
-
-nearest_point :: (line: Line2, point: Vector2, t: *float) -> Vector2 {
+nearest_point :: (line: Line2, point: Vector2) -> Vector2, float {
     // p128
     ab := line.p2 - line.p1;
-    << t = dot(point - line.p1, ab) / dot(ab, ab);
-    if << t < 0.0 {
-        << t = 0.0;
+    abdot := dot(ab, ab);
+    if abdot < EPSILON {
+        return line.p1, 0;
     }
-    if << t > 1.0 {
-        << t = 1.0;
+    
+    t := dot(point - line.p1, ab) / abdot;
+    if t < 0.0 {
+        t = 0.0;
+    }
+    if t > 1.0 {
+        t = 1.0;
     }
 
-    return line.p1 + << t * ab;
+    return line.p1 + t * ab, t;
 }
 
-nearest_point :: (line: Line3, point: Vector3, t: *float) -> Vector3 {
+nearest_point :: (line: Line3, point: Vector3) -> Vector3, float {
     // p128
     ab := line.p2 - line.p1;
-    << t = dot(point - line.p1, ab) / dot(ab, ab);
-    if << t < 0.0 {
-        << t = 0.0;
+    abdot := dot(ab, ab);
+    if abdot < EPSILON {
+        return line.p1, 0;
     }
-    if << t > 1.0 {
-        << t = 1.0;
+    
+    t := dot(point - line.p1, ab) / abdot;
+    if t < 0.0 {
+        t = 0.0;
+    }
+    if t > 1.0 {
+        t = 1.0;
     }
 
-    return line.p1 + << t * ab;
+    return line.p1 + t * ab, t;
 }
 
 distance :: (line: Line2, point: Vector2) -> float {
@@ -2606,16 +2685,6 @@ intersects :: (frustum: Frustum, position: Vector3, radius: float) -> bool {
 }
 
 // matrix stuff
-make_rotation_matrix_from_velocity :: (velocity: Vector3) -> Matrix4 {
-    yaw := PI / 2.0 - atan2(velocity.z, velocity.x);
-    pitch := atan2(velocity.y, sqrt(velocity.x * velocity.x + velocity.z * velocity.z));
-
-    matrix := Matrix4Identity;
-    matrix = rotate(rotate(matrix, make_rotation_quaternion(.{0, 1, 0}, yaw)), make_rotation_quaternion(.{1, 0, 0}, -pitch));
-
-    return matrix;
-}
-
 make_translation_matrix3 :: (v: Vector2) -> Matrix3 #must {
     m := Matrix3Identity;
 
@@ -2686,6 +2755,16 @@ make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     l_sin := sin(l_ang / 2);
     l_cos := cos(l_ang / 2);
     return normalize(Quaternion.{d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos});
+}
+
+make_rotation_quaternion :: (velocity: Vector3) -> Quaternion {
+    yaw := atan2(velocity.x, velocity.z) + PI;
+    rotation_yaw := make_rotation_quaternion(.{0, 1, 0}, yaw);
+
+    pitch := atan2(velocity.y, length(Vector2.{velocity.x, velocity.z}));
+    rotation_pitch := make_rotation_quaternion(.{1, 0, 0}, pitch);
+
+    return rotation_yaw * rotation_pitch;
 }
 
 normalize :: (using quat: Quaternion) -> Quaternion {
@@ -2870,6 +2949,15 @@ is_backward :: (a: Vector2, b: Vector2) -> bool {
     return dot(a, b) < 0;
 }
 
+hermite :: (points: [2] float, tangents: [2] float, t: float) -> float {
+    n1 := 2.0 * t * t * t - 3.0 * t * t + 1.0;
+    n2 := t * t * t - 2.0 * t * t + t;
+    n3 := -2.0 * t * t * t + 3.0 * t * t;
+    n4 := t * t * t - t * t;
+
+    return n1 * points[0] + n2 * tangents[0] + n3 * points[1] + n4 * tangents[1];
+}
+
 hermite :: (points: [2] Vector2, tangents: [2] Vector2, t: float) -> Vector2 {
     n1 := 2.0 * t * t * t - 3.0 * t * t + 1.0;
     n2 := t * t * t - 2.0 * t * t + t;
@@ -2897,6 +2985,28 @@ hermite_velocity :: inline (positions: [2] Vector3, velocities: [2] Vector3, t: 
     return positions[0] * n1 + positions[1] * n2 + (velocities[0] + velocities[1]) * n3 + (-4.0 * velocities[0] - 2 * velocities[1]) * n4 + velocities[0];
 
     // return n1 * positions[0] + n2 * velocities[0] + n3 * positions[1] + n4 * velocities[1];
+}
+
+hermite_points :: (points: [3] Vector3, t: float) -> Vector3 {
+    tangents: [2] Vector3;
+    tangents[0] = points[1] - points[0];
+    tangents[1] = points[2] - points[1];
+
+    hermite_points: [2] Vector3;
+    hermite_points[0] = points[0];
+    hermite_points[1] = points[1];
+    return hermite(hermite_points, tangents, t);
+}
+
+hermite_points :: (points: [3] float, t: float) -> float {
+    tangents: [2] float;
+    tangents[0] = points[1] - points[0];
+    tangents[1] = points[2] - points[1];
+
+    hermite_points: [2] float;
+    hermite_points[0] = points[0];
+    hermite_points[1] = points[1];
+    return hermite(hermite_points, tangents, t);
 }
 
 round :: (v: Vector2) -> Vector2 {
@@ -3915,6 +4025,48 @@ radians_between :: (start: float, end: float) -> float {
         r.z = k / a.z;
         return r;
     }
+}
+
+// physics stuff
+
+get_timed_launch_angle_velocity :: (start: Vector3, end: Vector3, gravity: float, air_duration: float) -> float, float {
+    // dy = v0 * t * sin(theta) - 0.5 * g * t^2
+    // im gonna assume sin(theta) is pointing always up to find vertical velocity
+    // dy = v0 * t - 0.5 * g * t^2
+    // dy - v0 * t = -0.5 * g * t^2
+    // v0 * t - dy = 0.5 * g * t^2
+    // v0 * t = 0.5 * g * t^2 + dy
+    // v0 = 0.5 * g * t + dy / t
+
+    delta := end - start;
+    x := length(Vector2.{delta.x, delta.z});
+    y := delta.y;
+
+    vertical_speed := 0.5 * gravity * air_duration + y / air_duration;
+    horizontal_speed := x / air_duration;
+
+    launch_angle := atan(vertical_speed / horizontal_speed);
+    launch_speed := sqrt(horizontal_speed * horizontal_speed + vertical_speed * vertical_speed);
+
+    return launch_angle, launch_speed;
+}
+
+get_minimum_launch_angle_velocity :: (start: Vector3, end: Vector3, gravity: float) -> float, float {
+    // gravity is a positive number
+    delta := end - start;
+    x := length(Vector2.{delta.x, delta.z});
+    y := delta.y;
+
+    // https://en.wikipedia.org/wiki/Projectile_motion
+    launch_angle := atan(y / x + sqrt((y * y) / (x * x) + 1));
+
+    // v^2 / g = y + sqrt(y^2 + x^2);
+    launch_speed := sqrt(gravity * (y + sqrt(x * x + y * y)));
+
+    // velocity := normalize(Vector3.{delta.x, 0, delta.z}) * cos(launch_angle) + Vector3.{0, 1, 0} * sin(launch_angle);
+    // velocity *= launch_speed;
+
+    return launch_angle, launch_speed;
 }
 
 #scope_file
