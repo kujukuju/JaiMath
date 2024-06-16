@@ -2889,10 +2889,6 @@ perp :: (vector: Vector2) -> Vector2 {
     return xy(-vector.y, vector.x);
 }
 
-length_squared :: (a: Vector2) -> float {
-    return a.x * a.x + a.y * a.y;
-}
-
 atan2 :: (a: Vector2) -> float {
     return atan2(a.y, a.x);
 }
@@ -2976,6 +2972,14 @@ hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
     return n1 * points[0] + n2 * tangents[0] + n3 * points[1] + n4 * tangents[1];
 }
 
+hermite :: (points: [3] Vector3, tangents: [3] Vector3, t: float) -> Vector3 {
+    if t < 0.5 {
+        return hermite(.[points[0], points[1]], .[tangents[0], tangents[1]], t * 2);
+    } else {
+        return hermite(.[points[1], points[2]], .[tangents[1], tangents[2]], t * 2 - 1);
+    }
+}
+
 hermite_velocity :: inline (positions: [2] Vector3, velocities: [2] Vector3, t: float) -> Vector3 {
     n1 := 6.0 * t * t - 6.0 * t;
     n2 := 6.0 * t - 6.0 * t * t;
@@ -3007,6 +3011,14 @@ hermite_points :: (points: [3] float, t: float) -> float {
     hermite_points[0] = points[0];
     hermite_points[1] = points[1];
     return hermite(hermite_points, tangents, t);
+}
+
+hermite_points :: (points: [4] Vector3, t: float) -> Vector3 {
+    if t < 0.5 {
+        return hermite_points(.[points[0], points[1], points[2]], t * 2);
+    } else {
+        return hermite_points(.[points[1], points[2], points[3]], t * 2 - 1);
+    }
 }
 
 round :: (v: Vector2) -> Vector2 {
