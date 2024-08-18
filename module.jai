@@ -2,13 +2,110 @@
 
 Frustum :: struct {
     point: Vector3;
-    normals: [5] Vector3;
+    // x,y,z is the normal
+    // w is the d value
+    normals: [5] Vector4;
 }
 
 Sphere :: struct {
-    c: Vector3;
-    r: float;
+    center: Vector3;
+    radius: float;
 }
+
+create_sphere :: (center: Vector3, radius: float) -> Sphere {
+    return Sphere.{center, radius};
+}
+
+create_sphere :: (p1: Vector3) -> Sphere {
+    return Sphere.{
+        p1,
+        0.0,
+    };
+}
+
+create_sphere :: (p1: Vector3, p2: Vector3) -> Sphere {
+    return Sphere.{
+        p1 / 2.0 + p1 / 2.0,
+        distance(p1, p2) / 2.0,
+    };
+}
+
+create_sphere :: (p1: Vector3, p2: Vector3, p3: Vector3) -> Sphere, bool {
+    n := cross(p3 - p1, p2 - p1);
+    if length_squared(n) < EPSILON {
+        return .{}, false;
+    }
+    n = normalize(n);
+    p12_center := p1 / 2.0 + p2 / 2.0;
+    p23_center := p2 / 2.0 + p3 / 2.0;
+    p31_center := p3 / 2.0 + p1 / 2.0;
+    p12_ortho := normalize(cross(p2 - p1, n));
+    p23_ortho := normalize(cross(p3 - p2, n));
+    p31_ortho := normalize(cross(p1 - p3, n));
+
+    p12_ray := Ray3.{p12_center, p12_ortho};
+    p23_ray := Ray3.{p23_center, p23_ortho};
+
+    center := nearest_point(p12_ray, p23_ray);
+    radius := sqrt(max(distance_squared(p1, center), distance_squared(p2, center), distance_squared(p3, center)));
+
+    return Sphere.{center, radius}, true;
+}
+
+create_sphere :: (p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> Sphere, bool {
+    t1 := -(p1.x * p1.x + p1.y * p1.y + p1.z * p1.z);
+    t2 := -(p2.x * p2.x + p2.y * p2.y + p2.z * p2.z);
+    t3 := -(p3.x * p3.x + p3.y * p3.y + p3.z * p3.z);
+    t4 := -(p4.x * p4.x + p4.y * p4.y + p4.z * p4.z);
+
+    d_mat := Matrix4.{
+        t1, p1.y, p1.z, 1,
+        t2, p2.y, p2.z, 1,
+        t3, p3.y, p3.z, 1,
+        t4, p4.y, p4.z, 1,
+    };
+    e_mat := Matrix4.{
+        p1.x, t1, p1.z, 1,
+        p2.x, t2, p2.z, 1,
+        p3.x, t3, p3.z, 1,
+        p4.x, t4, p4.z, 1,
+    };
+    f_mat := Matrix4.{
+        p1.x, p1.y, t1, 1,
+        p2.x, p2.y, t2, 1,
+        p3.x, p3.y, t3, 1,
+        p4.x, p4.y, t4, 1,
+    };
+    g_mat := Matrix4.{
+        p1.x, p1.y, p1.z, t1,
+        p2.x, p2.y, p2.z, t2,
+        p3.x, p3.y, p3.z, t3,
+        p4.x, p4.y, p4.z, t4,
+    };
+    t_mat := Matrix4.{
+        p1.x, p1.y, p1.z, 1,
+        p2.x, p2.y, p2.z, 1,
+        p3.x, p3.y, p3.z, 1,
+        p4.x, p4.y, p4.z, 1,
+    };
+    t_det := determinant(t_mat);
+    if abs(t_det) < EPSILON {
+        return .{}, false;
+    }
+    d_det := determinant(d_mat) / t_det;
+    e_det := determinant(e_mat) / t_det;
+    f_det := determinant(f_mat) / t_det;
+    g_det := determinant(g_mat) / t_det;
+
+    center := Vector3.{-d_det / 2, -e_det / 2, -f_det / 2};
+    radius := 0.5 * sqrt(d_det * d_det + e_det * e_det + f_det * f_det - 4 * g_det);
+
+    return Sphere.{center, radius}, true;
+}
+
+#run {
+
+};
 
 AABB2 :: struct {
     lower: Vector2;
@@ -60,6 +157,15 @@ create_plane3_64 :: (p: Vector3_64, n: Vector3_64) -> Plane3_64 {
     result.d = dot(n, p);
 
     return result;
+}
+
+Cylinder :: struct {
+    // p is the center of one end
+    // q is the center of the other end
+    // r is radius
+    p: Vector3;
+    q: Vector3;
+    r: float;
 }
 
 Circle3 :: struct {
@@ -1086,6 +1192,133 @@ split_convex_polygon :: (vertices: [] Vector2, $max_count: int) -> [..] FixedPol
     return poly_list;
 }
 
+// cylinder stuff
+intersection :: (cylinder: Cylinder, line: Line3) -> Vector3, float, bool {
+    // p197
+    t: float;
+    sa := line.p1;
+    sb := line.p2;
+    q := cylinder.q;
+    p := cylinder.p;
+    r := cylinder.r;
+    d := q - p;
+    m := sa - p;
+    n := sb - sa;
+    md := dot(m, d);
+    nd := dot(n, d);
+    dd := dot(d, d);
+
+    // segment outside p side of cylinder
+    if md < 0 && md + nd < 0 return .{}, 0, false;
+    // segment outside of q side of cylinder
+    if md > dd && md + nd > dd return .{}, 0, false;
+
+    nn := dot(n, n);
+    mn := dot(m, n);
+    a := dd * nn - nd * nd;
+    k := dot(m, m) - r * r;
+    c := dd * k - md * md;
+    if abs(a) < EPSILON {
+        // segment runs parallel to cylinder
+        if c > 0 return .{}, 0, false;
+
+        if md < 0 {
+            t = -mn / nn;
+        } else if md > dd {
+            t = (nd - mn) / nn;
+        } else {
+            t = 0;
+        }
+        return sa + (sb - sa) * t, t, true;
+    }
+
+    b := dd * mn - nd * md;
+    discr := b * b - a * c;
+    if discr < 0 return .{}, 0, false;
+
+    t = (-b - sqrt(discr)) / a;
+    if t < 0 || t > 1 return .{}, 0, false;
+
+    if md + t * nd < 0 {
+        // intersection outside of cylinder on p side
+        if nd <= 0 return .{}, 0, false;
+        t = -md / nd;
+        if k + 2 * t * (mn + t * nn) <= 0 {
+            return sa + (sb - sa) * t, t, true;
+        } else {
+            return .{}, 0, false;
+        }
+    } else if md + t * nd > dd {
+        if nd >= 0 return .{}, 0, false;
+        t = (dd - md) / nd;
+        if k + dd - 2 * md + t * (2 * (mn - nd) + t * nn) <= 0 {
+            return sa + (sb - sa) * t, t, true;
+        } else {
+            return .{}, 0, false;
+        }
+    }
+
+    return sa + (sb - sa) * t, t, true;
+}
+
+nearest_point :: (cylinder: Cylinder, point: Vector3) -> Vector3, float {
+    ab := cylinder.q - cylinder.p;
+    abdot := dot(ab, ab);
+    if abdot < EPSILON {
+        return point, 0;
+    }
+    
+    t := dot(point - cylinder.p, ab) / abdot;
+    if t < 0 {
+        plane_d := dot(ab, cylinder.p);
+        plane_t := dot(ab, point) - plane_d;
+        projected := point - plane_t * ab;
+        if distance_squared(projected, cylinder.p) > cylinder.r * cylinder.r {
+            return normalize(projected - cylinder.p) * cylinder.r + cylinder.p, t;
+        } else {
+            return projected, t;
+        }
+    }
+    if t > 1 {
+        plane_d := dot(ab, cylinder.q);
+        plane_t := dot(ab, point) - plane_d;
+        projected := point - plane_t * ab;
+        if distance_squared(projected, cylinder.q) > cylinder.r * cylinder.r {
+            return normalize(projected - cylinder.q) * cylinder.r + cylinder.q, t;
+        } else {
+            return projected, t;
+        }
+    }
+
+    projected := cylinder.p + t * ab;
+
+    if distance_squared(projected, point) > cylinder.r * cylinder.r {
+        return normalize(point - projected) * cylinder.r + projected, t;
+    } else {
+        return point, t;
+    }
+}
+
+contains :: (cylinder: Cylinder, point: Vector3) -> bool {
+    // p128
+    ab := cylinder.q - cylinder.p;
+    abdot := dot(ab, ab);
+    if abdot < EPSILON {
+        return false;
+    }
+    
+    t := dot(point - cylinder.p, ab) / abdot;
+    if t < 0.0 {
+        return false;
+    }
+    if t > 1.0 {
+        return false;
+    }
+
+    projected_point := cylinder.p + t * ab;
+    return distance_squared(projected_point, point) <= cylinder.r * cylinder.r;
+}
+
 // sphere stuff
 // Determine whether plane p intersects sphere s
 intersection :: (sphere: Sphere, ray: Ray3) -> Vector3, bool {
@@ -1098,9 +1331,9 @@ intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
     // p178
     #if DEBUG validate_unit_vector(ray.dir);
 
-    m := ray.p - sphere.c;
+    m := ray.p - sphere.center;
     b := dot(m, ray.dir);
-    c := dot(m, m) - sphere.r * sphere.r;
+    c := dot(m, m) - sphere.radius * sphere.radius;
     // Exit if r’s origin outside s (c > 0) and r pointing away from s (b > 0)
     if c > 0 && b > 0 {
         return .{0, 0, 0}, false;
@@ -1123,8 +1356,8 @@ intersects :: (sphere: Sphere, ray: Ray3) -> bool {
     // p179
     #if DEBUG validate_unit_vector(ray.dir);
     
-    m := ray.p - sphere.c;
-    c := dot(m, m) - sphere.r * sphere.r;
+    m := ray.p - sphere.center;
+    c := dot(m, m) - sphere.radius * sphere.radius;
     // If there is definitely at least one real root, there must be an intersection
     if c <= 0 {
         return true;
@@ -1148,9 +1381,13 @@ intersects :: (sphere: Sphere, plane: Plane3) -> bool {
     #if DEBUG validate_unit_vector(plane.n);
 
     // for a point gives the signed distance of the point to the plane
-    dist := dot(sphere.c, plane.n) - plane.d;
+    dist := dot(sphere.center, plane.n) - plane.d;
     // If sphere center within +/-radius from plane, plane intersects sphere
-    return abs(dist) <= sphere.r;
+    return abs(dist) <= sphere.radius;
+}
+
+contains :: (sphere: Sphere, point: Vector3) -> bool {
+    return distance_squared(sphere.center, point) <= sphere.radius * sphere.radius;
 }
 
 // plane stuff
@@ -1383,6 +1620,19 @@ get_aabb_points :: (aabb: AABB3) -> [8] Vector3 {
     aabb_points[5] = Vector3.{aabb.upper.x, aabb.lower.y, aabb.upper.z};
     aabb_points[6] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.lower.z};
     aabb_points[7] = Vector3.{aabb.upper.x, aabb.upper.y, aabb.upper.z};
+    return aabb_points;
+}
+
+get_aabb_points :: (transform: Matrix4, aabb: AABB3) -> [8] Vector3 {
+    aabb_points: [8] Vector3 = ---;
+    aabb_points[0] = inline transform_point(transform, Vector3.{aabb.lower.x, aabb.lower.y, aabb.lower.z});
+    aabb_points[1] = inline transform_point(transform, Vector3.{aabb.lower.x, aabb.lower.y, aabb.upper.z});
+    aabb_points[2] = inline transform_point(transform, Vector3.{aabb.lower.x, aabb.upper.y, aabb.lower.z});
+    aabb_points[3] = inline transform_point(transform, Vector3.{aabb.lower.x, aabb.upper.y, aabb.upper.z});
+    aabb_points[4] = inline transform_point(transform, Vector3.{aabb.upper.x, aabb.lower.y, aabb.lower.z});
+    aabb_points[5] = inline transform_point(transform, Vector3.{aabb.upper.x, aabb.lower.y, aabb.upper.z});
+    aabb_points[6] = inline transform_point(transform, Vector3.{aabb.upper.x, aabb.upper.y, aabb.lower.z});
+    aabb_points[7] = inline transform_point(transform, Vector3.{aabb.upper.x, aabb.upper.y, aabb.upper.z});
     return aabb_points;
 }
 
@@ -2264,13 +2514,13 @@ nearest_point :: (ray1: Ray3, ray2: Ray3) -> Vector3, Vector3 {
     return result1, result2;
 }
 
-nearest_point :: (ray: Ray3, point: Vector3) -> Vector3 {
+nearest_point :: (ray: Ray3, point: Vector3) -> Vector3, float {
     #if DEBUG validate_unit_vector(ray.dir);
 
     // p128
     t := dot(point - ray.p, ray.dir) / dot(ray.dir, ray.dir);
 
-    return ray.p + t * ray.dir;
+    return ray.p + t * ray.dir, t;
 }
 
 distance :: (ray: Ray2, point: Vector2) -> float {
@@ -2396,7 +2646,7 @@ nearest_point :: (line1: Line3, line2: Line3) -> p1: Vector3, p2: Vector3, t1: f
 }
 
 // I put #must here to be sure anything using this breaks since I'm adding more floats
-nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: float, t2: float #must, d: float #must {
+nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: float, t2: float, d: float {
     p1 := line1.p1;
     q1 := line1.p2;
     p2 := line2.p1;
@@ -2625,8 +2875,9 @@ reverse :: (v: *[] Vector2) {
 }
 
 // frustum stuff
-create_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
-    directions: [5] Vector3 : .[.{0, 0, -1}, .{1, 0, -1}, .{-1, 0, -1}, .{0, 1, -1}, .{0, -1, -1}];
+// creates a frustum that allows any object to be rendered infinitely into the distance
+create_far_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
+    directions: [5] Vector4 : .[.{0, 0, -1, 0}, .{1, 0, -1, 0}, .{-1, 0, -1, 0}, .{0, 1, -1, 0}, .{0, -1, -1, 0}];
 
     inverse_projection := inverse(projection);
     inverse_view := inverse(view);
@@ -2638,50 +2889,128 @@ create_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
         directions,
     };
 
-    frustum.normals[0] = transform_point(inverse_projection, frustum.normals[0]);
+    frustum.normals[0].xyz = transform_point(inverse_projection, frustum.normals[0].xyz);
     frustum.normals[0].z = -1;
-    frustum.normals[0] = transform_vector(inverse_view, frustum.normals[0]);
-    frustum.normals[1] = transform_point(inverse_projection, frustum.normals[1]);
+    frustum.normals[0].xyz = transform_vector(inverse_view, frustum.normals[0].xyz);
+    frustum.normals[1].xyz = transform_point(inverse_projection, frustum.normals[1].xyz);
     frustum.normals[1].z = -1;
-    frustum.normals[1] = transform_vector(inverse_view, frustum.normals[1]);
-    frustum.normals[2] = transform_point(inverse_projection, frustum.normals[2]);
+    frustum.normals[1].xyz = transform_vector(inverse_view, frustum.normals[1].xyz);
+    frustum.normals[2].xyz = transform_point(inverse_projection, frustum.normals[2].xyz);
     frustum.normals[2].z = -1;
-    frustum.normals[2] = transform_vector(inverse_view, frustum.normals[2]);
-    frustum.normals[3] = transform_point(inverse_projection, frustum.normals[3]);
+    frustum.normals[2].xyz = transform_vector(inverse_view, frustum.normals[2].xyz);
+    frustum.normals[3].xyz = transform_point(inverse_projection, frustum.normals[3].xyz);
     frustum.normals[3].z = -1;
-    frustum.normals[3] = transform_vector(inverse_view, frustum.normals[3]);
-    frustum.normals[4] = transform_point(inverse_projection, frustum.normals[4]);
+    frustum.normals[3].xyz = transform_vector(inverse_view, frustum.normals[3].xyz);
+    frustum.normals[4].xyz = transform_point(inverse_projection, frustum.normals[4].xyz);
     frustum.normals[4].z = -1;
-    frustum.normals[4] = transform_vector(inverse_view, frustum.normals[4]);
+    frustum.normals[4].xyz = transform_vector(inverse_view, frustum.normals[4].xyz);
 
-    frustum.normals[0] = normalize(frustum.normals[0]);
-    frustum.normals[1] = normalize(frustum.normals[1]);
-    frustum.normals[1] = normalize(cross(normalize(cross(frustum.normals[1], frustum.normals[0])), frustum.normals[1]));
-    frustum.normals[2] = normalize(frustum.normals[2]);
-    frustum.normals[2] = normalize(cross(normalize(cross(frustum.normals[2], frustum.normals[0])), frustum.normals[2]));
-    frustum.normals[3] = normalize(frustum.normals[3]);
-    frustum.normals[3] = normalize(cross(normalize(cross(frustum.normals[3], frustum.normals[0])), frustum.normals[3]));
-    frustum.normals[4] = normalize(frustum.normals[4]);
-    frustum.normals[4] = normalize(cross(normalize(cross(frustum.normals[4], frustum.normals[0])), frustum.normals[4]));
+    frustum.normals[0].xyz = normalize(frustum.normals[0].xyz);
+    frustum.normals[1].xyz = normalize(frustum.normals[1].xyz);
+    frustum.normals[1].xyz = normalize(cross(normalize(cross(frustum.normals[1].xyz, frustum.normals[0].xyz)), frustum.normals[1].xyz));
+    frustum.normals[2].xyz = normalize(frustum.normals[2].xyz);
+    frustum.normals[2].xyz = normalize(cross(normalize(cross(frustum.normals[2].xyz, frustum.normals[0].xyz)), frustum.normals[2].xyz));
+    frustum.normals[3].xyz = normalize(frustum.normals[3].xyz);
+    frustum.normals[3].xyz = normalize(cross(normalize(cross(frustum.normals[3].xyz, frustum.normals[0].xyz)), frustum.normals[3].xyz));
+    frustum.normals[4].xyz = normalize(frustum.normals[4].xyz);
+    frustum.normals[4].xyz = normalize(cross(normalize(cross(frustum.normals[4].xyz, frustum.normals[0].xyz)), frustum.normals[4].xyz));
+
+    frustum.normals[0].w = dot(frustum.point, frustum.normals[0].xyz);
+    frustum.normals[1].w = dot(frustum.point, frustum.normals[1].xyz);
+    frustum.normals[2].w = dot(frustum.point, frustum.normals[2].xyz);
+    frustum.normals[3].w = dot(frustum.point, frustum.normals[3].xyz);
+    frustum.normals[4].w = dot(frustum.point, frustum.normals[4].xyz);
+
+    // if include_far_plane {
+    //     clip_space := Vector3.{0, 0, 1};
+    //     view_point := Vector4.{
+    //         inverse_projection._11 * clip_space.x,
+    //         inverse_projection._22 * clip_space.y,
+    //         inverse_projection._43,
+    //         inverse_projection._34 * clip_space.z,
+    //     };
+
+    //     view_point.xyz /= view_point.w;
+
+    //     far_point := transform_point(inverse_view, view_point.xyz);
+
+    //     print("far_point %\n", far_point);
+
+    //     frustum.normals[5].xyz = -frustum.normals[0].xyz;
+    //     frustum.normals[5].w = dot(far_point, frustum.normals[5].xyz);
+    // } else {
+        // frustum.normals[5] = frustum.normals[0];
+    // }
 
     return frustum;
 }
 
-intersects :: (frustum: Frustum, position: Vector3, radius: float) -> bool {
-    d_values: [5] float = ---;
-    d_values[0] = dot(frustum.point, frustum.normals[0]);
-    d_values[1] = dot(frustum.point, frustum.normals[1]);
-    d_values[2] = dot(frustum.point, frustum.normals[2]);
-    d_values[3] = dot(frustum.point, frustum.normals[3]);
-    d_values[4] = dot(frustum.point, frustum.normals[4]);
+// creates a frustum that allows any object to be rendered behind it, useful for shadows
+create_near_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
+    frustum := create_far_camera_frustum(projection, view);
 
-    inside := dot(position, frustum.normals[0]) - d_values[0] >= -radius;
-    inside = inside && dot(position, frustum.normals[1]) - d_values[1] >= -radius;
-    inside = inside && dot(position, frustum.normals[2]) - d_values[2] >= -radius;
-    inside = inside && dot(position, frustum.normals[3]) - d_values[3] >= -radius;
-    inside = inside && dot(position, frustum.normals[4]) - d_values[4] >= -radius;
+    // TODO this should actually get converted into being the far plane and not the near plane
+    frustum.normals[0] = frustum.normals[1];
+
+    return frustum;
+}
+
+intersects :: (frustum: Frustum, sphere: Sphere) -> bool {
+    return intersects(frustum, sphere.center, sphere.radius);
+}
+
+intersects :: (frustum: Frustum, position: Vector3, radius: float) -> bool {
+    inside := true;
+    for frustum_normal: frustum.normals {
+        inside = inside && dot(position, frustum_normal.xyz) - frustum_normal.w >= -radius;
+    }
 
     return inside;
+}
+
+intersects :: (frustum: Frustum, local_aabb: AABB3, transform: Matrix4) -> bool {
+    // not sure if this is right but I'm extrapolating from aabb overlap
+    // check that there is at least 1 point inside each frustum plane
+    // or your bounds encompasses the center point
+
+    aabb_points := get_aabb_points(local_aabb);
+    for i: 0..aabb_points.count - 1 {
+        aabb_points[i] = transform_point(transform, aabb_points[i]);
+    }
+
+    // it doesn't interesct if one side has all points on it
+    for i: 0..frustum.normals.count - 1 {
+        for point: aabb_points {
+            if dot(point, frustum.normals[i].xyz) - frustum.normals[i].w >= 0 {
+                continue i;
+            }
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+intersects :: (frustum: Frustum, aabb: AABB3) -> bool {
+    // not sure if this is right but I'm extrapolating from aabb overlap
+    // check that there is at least 1 point inside each frustum plane
+    // or your bounds encompasses the center point
+
+    aabb_points := get_aabb_points(aabb);
+
+    // it doesn't interesct if one side has all points on it
+    for i: 0..frustum.normals.count - 1 {
+        for point: aabb_points {
+            if dot(point, frustum.normals[i].xyz) - frustum.normals[i].w >= 0 {
+                continue i;
+            }
+        }
+
+        return false;
+    }
+
+    return true;
 }
 
 // matrix stuff
@@ -2745,6 +3074,7 @@ decompose_matrix4 :: (matrix: Matrix4) -> Vector3, Quaternion, Vector3 {
     return translation, rotation, scale;
 }
 
+// quaternion stuff
 // quat stuff
 make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     d := length(axis);
@@ -2765,6 +3095,30 @@ make_rotation_quaternion :: (velocity: Vector3) -> Quaternion {
     rotation_pitch := make_rotation_quaternion(.{1, 0, 0}, pitch);
 
     return rotation_yaw * rotation_pitch;
+}
+
+decompose_twist_and_swing :: (quat: Quaternion, axis: Vector3) -> Quaternion, Quaternion {
+    // not really tested
+
+    // returns the twist, radians around the axis
+    // and the swing, radians around the perpendicular axis
+    // quaternion can be composed back into itself via swing * twist
+
+    ra := Vector3.{quat.x, quat.y, quat.z}; // rotation axis
+    p := project(axis, ra);
+    twist := normalize(Quaternion.{p.x, p.y, p.z, quat.w});
+    swing := quat * conjugate(twist);
+    return twist, swing;
+}
+
+get_rotation_around_axis :: (quat: Quaternion, axis: Vector3) -> float {
+    right := axis;
+    forward := cross(.{0, 1, 0}, right);
+    up := cross(right, forward);
+
+    quat_vector := rotate(.{0, 0, -1}, quat);
+
+    return atan2(dot(quat_vector, up), dot(quat_vector, forward));
 }
 
 normalize :: (using quat: Quaternion) -> Quaternion {
@@ -2845,6 +3199,147 @@ project :: (dest: Vector2, src: Vector2) -> Vector2 {
 
 project_direction :: (normal: Vector3, direction: Vector3) -> Vector3 {
     return direction - dot(normal, direction) * normal;
+}
+
+decompose :: (v: Vector3, dir: Vector3) -> v: Vector3, v_dir: Vector3 {
+    dir_strength := dot(v, dir);
+
+    v_dir := dir * dir_strength;
+    return v - v_dir, v_dir;
+}
+
+decompose_signed :: (v: Vector3, dir: Vector3) -> v: Vector3, v_dir: Vector3 {
+    dir_strength := dot(v, dir);
+    if dir_strength <= 0 {
+        return v, .{};
+    }
+
+    v_dir := dir * dir_strength;
+    return v - v_dir, v_dir;
+}
+
+// projects the direction onto the normal plain but maintains the direction magnitude (if possible)
+project_direction_conformal :: (normal: Vector3, direction: Vector3) -> Vector3 {
+    projected := project_direction(normal, direction);
+    if length_squared(projected) < 0.000001 {
+        return .{};
+    }
+    return normalize(projected) * length(direction);
+}
+
+project_multiple_normals :: (v_raw: Vector3, normals: [] Vector3) -> Vector3, modified: bool {
+    // the plan is create all permutation of plane vectors that are in the direction of v
+    // I think I also have to include the "permutations" of the vector projected onto all normals in case those satisfy it
+    // also include the actual vector
+    // each plane should have either 1 or 0 vectors that fit this category
+    // for each of these pemutations, sort them so that the largest dot product with v is first
+    // go through them in order until one permutation satisfies all plane normal requirements
+    // return that one
+    // if not a single permutation satisfies all planes, return a zero vector
+
+    // the vector itself is the least resistance option
+    // then projecting onto single planes is the next least resistance option
+    // then finally projecting onto a combination of 2 planes is the most resistance
+    // so instead of treating these all as the same thing we can check these cases in order
+
+    mag := length(v_raw);
+    v := normalize(v_raw);
+
+    if mag < 0.000001 {
+        return v_raw, false;
+    }
+
+    validate_projection :: inline (proj: Vector3, normals: [] Vector3) -> bool {
+        valid := true;
+        for normal: normals {
+            valid = valid && dot(proj, normal) >= -0.000001;
+        }
+        return valid;
+    }
+
+    sort_by_largest_dot_product :: (normals: [] Vector3, v: Vector3) {
+        for i: 0..normals.count - 1 {
+            for a: i + 1..normals.count - 1 {
+                if dot(v, normals[i]) < dot(v, normals[a]) {
+                    normals[i], normals[a] = normals[a], normals[i];
+                }
+            }
+        }
+    }
+
+    // test just the vector
+    if validate_projection(v, normals) {
+        return v_raw, false;
+    }
+
+    // these are the normals to start with, all permutations form from these
+    restricting_normal_index := 0;
+    restricting_normals := NewArray(normals.count, Vector3,, temp);
+    for normal: normals {
+        if dot(v, normal) <= 0.000001 {
+            restricting_normals[restricting_normal_index] = normal;
+            restricting_normal_index += 1;
+        }
+    }
+    restricting_normals.count = restricting_normal_index;
+
+    // this sorts so largest dot product is first
+    // so since these are normals we want to look at 0 dot products first
+    // the largest possible value is 0 because you're inherently going into these normals
+    sort_by_largest_dot_product(restricting_normals, v);
+
+    // so now we check if any are valid, and since they're sorted we just return
+    for normal: restricting_normals {
+        proj := project_direction(normal, v);
+        if validate_projection(proj, normals) {
+            return proj * mag, true;
+        }
+    }
+
+    permutation_count := restricting_normals.count * normals.count;
+
+    permutation_index := 0;
+    permutations := NewArray(permutation_count, Vector3,, temp);
+
+    // check n^2 because even if you don't get restricted by index 1, projecting onto index 4 could cause index 1 to start restricting
+    // start with vectors that are restricting because we need to immediately project
+    for i: 0..restricting_normals.count - 1 {
+        proj := project_direction(normals[i], v);
+
+        for a: 0..normals.count - 1 {
+            // we only include this permutation if the vector projected onto the restricting normal is also restricted by the other normal
+            if dot(proj, normals[a]) > 0 {
+                continue;
+            }
+
+            permutation := cross(normals[i], normals[a]);
+
+            permutation_dot := dot(permutation, v);
+            if permutation_dot > 0.000001 {
+                permutations[permutation_index] = permutation;
+                permutation_index += 1;
+            } else if permutation_dot < -0.000001 {
+                permutations[permutation_index] = -permutation;
+                permutation_index += 1;
+            }
+        }
+    }
+    permutations.count = permutation_index;
+
+    sort_by_largest_dot_product(permutations, v);
+
+    for permutation: permutations {
+        if validate_projection(permutation, normals) {
+            return dot(v, permutation) / dot(permutation, permutation) * permutation * mag, true;
+        }
+    }
+
+    return .{}, true;
+}
+
+project_multiple_normals_conformal :: (v_raw: Vector3, normals: [] Vector3) -> Vector3, modified: bool {
+    proj, modified := project_multiple_normals(v_raw, normals);
+    return normalize(proj) * length(v_raw), modified;
 }
 
 scalar_triple :: (u: Vector3, v: Vector3, w: Vector3) -> float {
@@ -2991,6 +3486,7 @@ hermite_velocity :: inline (positions: [2] Vector3, velocities: [2] Vector3, t: 
     // return n1 * positions[0] + n2 * velocities[0] + n3 * positions[1] + n4 * velocities[1];
 }
 
+// t brings you between points[0] and points[1] I think
 hermite_points :: (points: [3] Vector3, t: float) -> Vector3 {
     tangents: [2] Vector3;
     tangents[0] = points[1] - points[0];
@@ -3011,6 +3507,21 @@ hermite_points :: (points: [3] float, t: float) -> float {
     hermite_points[0] = points[0];
     hermite_points[1] = points[1];
     return hermite(hermite_points, tangents, t);
+}
+
+hermite_b_spline :: (points: [3] Vector3, t: float) -> Vector3 {
+    center_points := Vector3.[
+        (points[0] + points[1]) * 0.5,
+        (points[1] + points[2]) * 0.5,
+    ];
+    // im not sure if this is supposed to be 0.5 or 1.0
+    // 1.0 seems to produce the best results
+    center_tangents := Vector3.[
+        (points[1] - points[0]) * 1.0,
+        (points[2] - points[1]) * 1.0,
+    ];
+
+    return hermite(center_points, center_tangents, t);
 }
 
 hermite_points :: (points: [4] Vector3, t: float) -> Vector3 {
@@ -3509,6 +4020,29 @@ undo_ease_in_out :: (v: float) -> float {
         // (sqrt(2 - 2 * v) - 2) / -2 = t
         return sqrt(2 - 2 * v) / -2 + 1;
     }
+}
+
+ease_out_elastic :: (t: float, bounciness_mul: float = 10.0, bounce_mul: float = 1.0) -> float {
+    c4 := 2.0 * PI / 3.0;
+
+    if t == 0 {
+        return 0.0;
+    } else {
+        if t == 1 {
+            return 1.0;
+        } else {
+            return pow(2.0, -bounciness_mul * t) * ((sin((t * 10 - 0.75) * c4) + 1) * bounce_mul - 1) + 1;
+        }
+    }
+}
+
+ease_out_exp :: (t: float) -> float {
+    return (1.0 - exp(-t * 2)) / 0.86466472;
+}
+
+smoothstep :: (edge0: $T, edge1: T, x: float) -> T {
+    t := clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
 }
 
 fmod :: fmod_cycling;
