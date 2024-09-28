@@ -1505,8 +1505,8 @@ inside :: (plane: Plane3, sphere: Sphere) -> bool {
     // p161
     #if DEBUG validate_unit_vector(plane.n);
 
-    dist := dot(sphere.c, plane.n) - plane.d;
-    return dist < -sphere.r;
+    dist := dot(sphere.center, plane.n) - plane.d;
+    return dist < -sphere.radius;
 }
 
 nearest_point :: (plane: $T/AnyPlane3, point: $P/AnyVector3) -> P {
@@ -2876,83 +2876,67 @@ reverse :: (v: *[] Vector2) {
 
 // frustum stuff
 // creates a frustum that allows any object to be rendered infinitely into the distance
-create_far_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
-    directions: [5] Vector4 : .[.{0, 0, -1, 0}, .{1, 0, -1, 0}, .{-1, 0, -1, 0}, .{0, 1, -1, 0}, .{0, -1, -1, 0}];
-
+create_camera_frustum :: (projection: Matrix4, view: Matrix4, $clip_far_plane_only: bool = false) -> Frustum {
     inverse_projection := inverse(projection);
     inverse_view := inverse(view);
+    clip := projection * view;
+    inverse_clip := inverse_view * inverse_projection;
 
     camera_point := transform_point(inverse_view, .{0, 0, 0});
 
-    frustum := Frustum.{
-        camera_point,
-        directions,
-    };
+    points := Vector4.[
+        inverse_clip * Vector4.{0, 0, -1, 1},
+        inverse_clip * Vector4.{-1, 0, -1, 1},
+        inverse_clip * Vector4.{1, 0, -1, 1},
+        inverse_clip * Vector4.{0, -1, -1, 1},
+        inverse_clip * Vector4.{0, 1, -1, 1},
+    ];
+    for *point: points {
+        if point.w != 0 {
+            point.xyz /= point.w;
+        }
+    }
 
-    frustum.normals[0].xyz = transform_point(inverse_projection, frustum.normals[0].xyz);
-    frustum.normals[0].z = -1;
-    frustum.normals[0].xyz = transform_vector(inverse_view, frustum.normals[0].xyz);
-    frustum.normals[1].xyz = transform_point(inverse_projection, frustum.normals[1].xyz);
-    frustum.normals[1].z = -1;
-    frustum.normals[1].xyz = transform_vector(inverse_view, frustum.normals[1].xyz);
-    frustum.normals[2].xyz = transform_point(inverse_projection, frustum.normals[2].xyz);
-    frustum.normals[2].z = -1;
-    frustum.normals[2].xyz = transform_vector(inverse_view, frustum.normals[2].xyz);
-    frustum.normals[3].xyz = transform_point(inverse_projection, frustum.normals[3].xyz);
-    frustum.normals[3].z = -1;
-    frustum.normals[3].xyz = transform_vector(inverse_view, frustum.normals[3].xyz);
-    frustum.normals[4].xyz = transform_point(inverse_projection, frustum.normals[4].xyz);
-    frustum.normals[4].z = -1;
-    frustum.normals[4].xyz = transform_vector(inverse_view, frustum.normals[4].xyz);
+    frustum: Frustum;
+    frustum.point = camera_point;
 
-    frustum.normals[0].xyz = normalize(frustum.normals[0].xyz);
-    frustum.normals[1].xyz = normalize(frustum.normals[1].xyz);
-    frustum.normals[1].xyz = normalize(cross(normalize(cross(frustum.normals[1].xyz, frustum.normals[0].xyz)), frustum.normals[1].xyz));
-    frustum.normals[2].xyz = normalize(frustum.normals[2].xyz);
-    frustum.normals[2].xyz = normalize(cross(normalize(cross(frustum.normals[2].xyz, frustum.normals[0].xyz)), frustum.normals[2].xyz));
-    frustum.normals[3].xyz = normalize(frustum.normals[3].xyz);
-    frustum.normals[3].xyz = normalize(cross(normalize(cross(frustum.normals[3].xyz, frustum.normals[0].xyz)), frustum.normals[3].xyz));
-    frustum.normals[4].xyz = normalize(frustum.normals[4].xyz);
-    frustum.normals[4].xyz = normalize(cross(normalize(cross(frustum.normals[4].xyz, frustum.normals[0].xyz)), frustum.normals[4].xyz));
+    // forward
+    frustum.normals[0] = clip.v[3] + clip.v[2];
+    // left
+    frustum.normals[1] = clip.v[3] + clip.v[0];
+    // right
+    frustum.normals[2] = clip.v[3] - clip.v[0];
+    // bottom
+    frustum.normals[3] = clip.v[3] + clip.v[1];
+    // top
+    frustum.normals[4] = clip.v[3] - clip.v[1];
 
-    frustum.normals[0].w = dot(frustum.point, frustum.normals[0].xyz);
-    frustum.normals[1].w = dot(frustum.point, frustum.normals[1].xyz);
-    frustum.normals[2].w = dot(frustum.point, frustum.normals[2].xyz);
-    frustum.normals[3].w = dot(frustum.point, frustum.normals[3].xyz);
-    frustum.normals[4].w = dot(frustum.point, frustum.normals[4].xyz);
+    for i: 0..frustum.normals.count - 1 {
+        frustum.normals[i].xyz = normalize(frustum.normals[i].xyz);
+    }
 
-    // if include_far_plane {
-    //     clip_space := Vector3.{0, 0, 1};
-    //     view_point := Vector4.{
-    //         inverse_projection._11 * clip_space.x,
-    //         inverse_projection._22 * clip_space.y,
-    //         inverse_projection._43,
-    //         inverse_projection._34 * clip_space.z,
-    //     };
+    frustum.normals[0].w = dot(points[0].xyz, frustum.normals[0].xyz);
+    frustum.normals[1].w = dot(points[1].xyz, frustum.normals[1].xyz);
+    frustum.normals[2].w = dot(points[2].xyz, frustum.normals[2].xyz);
+    frustum.normals[3].w = dot(points[3].xyz, frustum.normals[3].xyz);
+    frustum.normals[4].w = dot(points[4].xyz, frustum.normals[4].xyz);
 
-    //     view_point.xyz /= view_point.w;
+    #if clip_far_plane_only {
+        far_point := inverse_clip * Vector4.{0, 0, 1, 1};
+        if far_point.w != 0 {
+            far_point.xyz /= far_point.w;
+        }
 
-    //     far_point := transform_point(inverse_view, view_point.xyz);
-
-    //     print("far_point %\n", far_point);
-
-    //     frustum.normals[5].xyz = -frustum.normals[0].xyz;
-    //     frustum.normals[5].w = dot(far_point, frustum.normals[5].xyz);
-    // } else {
-        // frustum.normals[5] = frustum.normals[0];
-    // }
+        frustum.normals[0].xyz = -frustum.normals[0].xyz;
+        frustum.normals[0].w = dot(far_point.xyz, frustum.normals[0].xyz);
+    }
 
     return frustum;
 }
 
 // creates a frustum that allows any object to be rendered behind it, useful for shadows
 create_near_camera_frustum :: (projection: Matrix4, view: Matrix4) -> Frustum {
-    frustum := create_far_camera_frustum(projection, view);
-
-    // TODO this should actually get converted into being the far plane and not the near plane
-    frustum.normals[0] = frustum.normals[1];
-
-    return frustum;
+    return create_camera_frustum(projection, view, clip_far_plane_only = true);
 }
 
 intersects :: (frustum: Frustum, sphere: Sphere) -> bool {
@@ -2972,6 +2956,8 @@ intersects :: (frustum: Frustum, local_aabb: AABB3, transform: Matrix4) -> bool 
     // not sure if this is right but I'm extrapolating from aabb overlap
     // check that there is at least 1 point inside each frustum plane
     // or your bounds encompasses the center point
+
+    // return true;
 
     aabb_points := get_aabb_points(local_aabb);
     for i: 0..aabb_points.count - 1 {
@@ -2997,10 +2983,16 @@ intersects :: (frustum: Frustum, aabb: AABB3) -> bool {
     // check that there is at least 1 point inside each frustum plane
     // or your bounds encompasses the center point
 
+    // return true;
+
     aabb_points := get_aabb_points(aabb);
 
     // it doesn't interesct if one side has all points on it
     for i: 0..frustum.normals.count - 1 {
+        // if i == 0 || i == 1 || i == 3 || i == 4 {
+        //     continue;
+        // }
+        
         for point: aabb_points {
             if dot(point, frustum.normals[i].xyz) - frustum.normals[i].w >= 0 {
                 continue i;
@@ -3057,19 +3049,18 @@ get_scale :: (mat: Matrix4) -> Vector3 {
 decompose_matrix4 :: (matrix: Matrix4) -> Vector3, Quaternion, Vector3 {
     translation := Vector3.{matrix._14, matrix._24, matrix._34};
 
-    rotation := get_rotation(matrix);
-
-    // scale := Vector3.{
-    //     length(matrix.v[0]),
-    //     length(matrix.v[1]),
-    //     length(matrix.v[2]),
-    // };
-
     scale := Vector3.{
         length(Vector3.{matrix._11, matrix._21, matrix._31}),
         length(Vector3.{matrix._12, matrix._22, matrix._32}),
         length(Vector3.{matrix._13, matrix._23, matrix._33}),
     };
+
+    rotation_matrix := Matrix3.{
+        matrix._11 / scale.x, matrix._12 / scale.y, matrix._13 / scale.z,
+        matrix._21 / scale.x, matrix._22 / scale.y, matrix._23 / scale.z,
+        matrix._31 / scale.x, matrix._32 / scale.y, matrix._33 / scale.z,
+    };
+    rotation := get_rotation(rotation_matrix);
 
     return translation, rotation, scale;
 }
@@ -3195,6 +3186,11 @@ project :: (dest: $T/AnyVector3, src: T) -> T {
 
 project :: (dest: Vector2, src: Vector2) -> Vector2 {
     return (dot(src, dest) / dot(dest, dest)) * dest;
+}
+
+project_direction :: (normal: Vector2, src: Vector2) -> Vector2 {
+    dest := Vector2.{normal.y, -normal.x};
+    return inline project(dest, src);
 }
 
 project_direction :: (normal: Vector3, direction: Vector3) -> Vector3 {
@@ -3744,7 +3740,7 @@ floor :: (v: Vector2_64) -> Vector2_64 {
     return r;
 }
 
-floor :: (v: Vector3_64) -> Vector2_64 {
+floor :: (v: Vector3_64) -> Vector3_64 {
     r: Vector3_64 = ---;
     r.x = floor(v.x);
     r.y = floor(v.y);
@@ -3938,6 +3934,22 @@ roundi :: (value: float64) -> s64 {
 
 inverse_quick_sin :: (v: float) -> float {
     return 0.5 * (1.0 - sqrt(1.0 - abs(v))) * sign(v);
+}
+
+safe_asin :: (x: float) -> float {
+    return asin(clamp(x, -1.0, 1.0));
+}
+
+safe_asin :: (x: float64) -> float64 {
+    return asin(clamp(x, -1.0, 1.0));
+}
+
+safe_acos :: (x: float) -> float {
+    return acos(clamp(x, -1.0, 1.0));
+}
+
+safe_acos:: (x: float64) -> float64 {
+    return acos(clamp(x, -1.0, 1.0));
 }
 
 pow :: (v: float, i: int) -> float {
