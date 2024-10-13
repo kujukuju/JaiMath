@@ -1,5 +1,7 @@
 // page numbers come from "Real Time Collision Detection by Christer Ericson"
 
+#module_parameters () (PRODUCTION := false);
+
 Frustum :: struct {
     point: Vector3;
     // x,y,z is the normal
@@ -1320,6 +1322,76 @@ contains :: (cylinder: Cylinder, point: Vector3) -> bool {
 }
 
 // sphere stuff
+calculate_bounding_sphere :: (vertices: $T) -> Sphere {
+    // ritters algorithm
+
+    start: Vector3;
+    for vertex: vertices {
+        start = vertex;
+        break;
+    }
+
+    farthest_dist := 0.0;
+    farthest_a: Vector3;
+
+    for vertex: vertices {
+        d2 := distance_squared(start, vertex);
+        if d2 > farthest_dist {
+            farthest_dist = d2;
+            farthest_a = vertex;
+        }
+    }
+
+    assert(farthest_dist > 0);
+
+    if farthest_dist == 0 {
+        return .{};
+    }
+
+    farthest_dist = 0.0;
+    farthest_b: Vector3;
+
+    for vertex: vertices {
+        d2 := distance_squared(farthest_a, vertex);
+        if d2 > farthest_dist {
+            farthest_dist = d2;
+            farthest_b = vertex;
+        }
+    }
+
+    assert(farthest_dist > 0);
+
+    if farthest_dist == 0 {
+        return .{};
+    }
+
+    sphere: Sphere;
+    sphere.center = farthest_a / 2.0 + farthest_b / 2.0;
+    sphere.radius = distance(farthest_a, farthest_b) / 2.0;
+
+    for vertex: vertices {
+        d2 := distance_squared(sphere.center, vertex);
+        if d2 <= sphere.radius * sphere.radius {
+            continue;
+        }
+
+        d := sqrt(d2);
+
+        new_radius := (sphere.radius + d) / 2.0;
+        sphere.center = sphere.center + ((new_radius - sphere.radius) / d) * (vertex - sphere.center);
+        sphere.radius = new_radius;
+    }
+
+    #if DEBUG {
+        for vertex: vertices {
+            dist := distance(sphere.center, vertex);
+            assert(dist <= sphere.radius + 0.001, "Found invalid vertex after calculating bounding sphere. % > %\n", dist, sphere.radius);
+        }
+    }
+
+    return sphere;
+}
+
 // Determine whether plane p intersects sphere s
 intersection :: (sphere: Sphere, ray: Ray3) -> Vector3, bool {
     t: float = 0;
@@ -1524,38 +1596,39 @@ distance :: (plane: Plane3, point: Vector3) -> float {
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
 
+distance :: (plane: Plane3_64, point: Vector3_64) -> float64 {
+    #if DEBUG validate_unit_vector(plane.n);
+
+    return dot(point, plane.n) - plane.d;
+    // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
+}
+
 // this function is just going to assume up is 0, 1, 0 and correct it arbitrarily since that's the behavior I currently need
 // returns the 2d coordinates in the newly determined system
 // it also returns the right and up vectors in 3d space
-convert_coordinates :: (plane: Plane3, point: Vector3) -> Vector2, Vector3, Vector3 {
+convert_coordinates :: (plane: Plane3, origin: Vector3, point: Vector3) -> Vector2, Vector3, Vector3 {
     #if DEBUG validate_unit_vector(plane.n);
 
     up := Vector3.{0, 1, 0};
-    if 1.0 - abs(dot(plane.n, up)) < 0.00001 {
+    if abs(dot(plane.n, up)) > 0.5 {
         up = Vector3.{0, 0, -1};
     }
-
-    // TODO remove
-    #run assert(cross(.{0, 0, -1}, .{0, 1, 0}).x > 0.9999, "Sanity check... Remove this.\n");
-    #run assert(cross(.{1, 0, 0}, .{0, 0, -1}).y > 0.9999, "Sanity check... Remove this.\n");
 
     projected := nearest_point(plane, point);
     plane_right := normalize(cross(plane.n, up));
     plane_up := normalize(cross(plane_right, plane.n));
 
-    // this could be more accurate in some scenarios if you provide your own center, just like providing your own up might be better in some scenarios
-    origin := nearest_point(plane, .{0, 0, 0});
-
+    assert(distance(plane, origin) < 0.00001, "Invalid plane origin.\n");
     point_delta := projected - origin;
 
     return Vector2.{dot(point_delta, plane_right), dot(point_delta, plane_up)}, plane_right, plane_up;
 }
 
-convert_coordinates :: (plane: Plane3_64, point: Vector3_64) -> Vector2_64, Vector3_64, Vector3_64 {
+convert_coordinates :: (plane: Plane3_64, origin: Vector3_64, point: Vector3_64) -> Vector2_64, Vector3_64, Vector3_64 {
     #if DEBUG validate_unit_vector(plane.n);
 
     up := Vector3_64.{0, 1, 0};
-    if 1.0 - abs(dot(plane.n, up)) < 0.00001 {
+    if abs(dot(plane.n, up)) > 0.5 {
         up = Vector3_64.{0, 0, -1};
     }
 
@@ -1563,9 +1636,7 @@ convert_coordinates :: (plane: Plane3_64, point: Vector3_64) -> Vector2_64, Vect
     plane_right := normalize(cross(plane.n, up));
     plane_up := normalize(cross(plane_right, plane.n));
 
-    // this could be more accurate in some scenarios if you provide your own center, just like providing your own up might be better in some scenarios
-    origin := nearest_point(plane, Vector3_64.{0, 0, 0});
-
+    assert(distance(plane, origin) < 0.00001, "Invalid plane origin.\n");
     point_delta := projected - origin;
 
     return Vector2_64.{dot(point_delta, plane_right), dot(point_delta, plane_up)}, plane_right, plane_up;
@@ -4635,7 +4706,7 @@ get_minimum_launch_angle_velocity :: (start: Vector3, end: Vector3, gravity: flo
 EPSILON :: 0.000001;
 PI_2 :: PI * 2;
 
-DEBUG :: true;
+DEBUG :: !PRODUCTION;
 INT_MATH :: false;
 
 AnyPlane3 :: Type.[Plane3, Plane3_64];
