@@ -2542,9 +2542,13 @@ nearest_point :: (triangle: Triangle3, point: Vector3) -> Vector3 {
     return triangle.a + ab * v + ac * w; // = u*a + v*b + w*c, u = va * denom = 1-v-w
 }
 
+area :: (triangle: Triangle3) -> float {
+    return length(cross(triangle.c - triangle.a, triangle.c - triangle.b)) / 2.0;
+}
+
 area_signed :: (triangle: Triangle2) -> float {
     // p152
-    return (triangle.a.x - triangle.c.x) * (triangle.b.y - triangle.c.y) - (triangle.a.y - triangle.c.y) * (triangle.b.x - triangle.c.x);
+    return ((triangle.a.x - triangle.c.x) * (triangle.b.y - triangle.c.y) - (triangle.a.y - triangle.c.y) * (triangle.b.x - triangle.c.x)) / 2.0;
 }
 
 is_ccw :: (triangle: Triangle2) -> bool {
@@ -2809,8 +2813,8 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
     abc.b = line1.p2;
     abc.c = line2.p1;
 
-    a1 := area_signed(abd); // Compute winding of abd (+ or -)
-    a2 := area_signed(abc); // To intersect, must have sign opposite of a1
+    a1 := area_signed(abd) * 2.0; // Compute winding of abd (+ or -)
+    a2 := area_signed(abc) * 2.0; // To intersect, must have sign opposite of a1
 
     // If c and d are on different sides of ab, areas have different signs
     if a1 * a2 < 0 {
@@ -2820,7 +2824,7 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
         cda.b = line2.p2;
         cda.c = line1.p1;
 
-        a3 := area_signed(cda); // Compute winding of cda (+ or -)
+        a3 := area_signed(cda) * 2.0; // Compute winding of cda (+ or -)
         // Since area is constant a1 - a2 = a3 - a4, or a4 = a3 + a2 - a1
         // float a4 = Signed2DTriArea(c, d, b); // Must have opposite sign of a3
         a4 := a3 + a2 - a1;
@@ -2927,17 +2931,7 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
 }
 
 // array stuff
-reverse :: (v: [] Vector2) -> [..] Vector2 {
-    new: [..] Vector2;
-    for i: 0..v.count - 1 {
-        index := v.count - i - 1;
-        array_add(*new, v[index]);
-    }
-
-    return new;
-}
-
-reverse :: (v: *[] Vector2) {
+reverse :: (v: [] $T) {
     for i: 0..v.count / 2 - 1 {
         p1, p2 := swap(v.data[i], v.data[v.count - i - 1]);
         v.data[i] = p1;
@@ -3117,6 +3111,10 @@ get_scale :: (mat: Matrix4) -> Vector3 {
     }
 }
 
+get_translation :: (matrix: Matrix4) -> Vector3 {
+    return Vector3.{matrix._14, matrix._24, matrix._34};
+}
+
 decompose_matrix4 :: (matrix: Matrix4) -> Vector3, Quaternion, Vector3 {
     translation := Vector3.{matrix._14, matrix._24, matrix._34};
 
@@ -3149,6 +3147,18 @@ make_rotation_quaternion :: (axis: Vector3, radians: float) -> Quaternion {
     return normalize(Quaternion.{d * axis.x * l_sin, d * axis.y * l_sin, d * axis.z * l_sin, l_cos});
 }
 
+make_rotation_quaternion :: (axis: Vector3_64, radians: float64) -> Quaternion {
+    PI_2_64 :: 3.141592653589793238462643383279;
+    d := length(axis);
+    if d == 0 return Quaternion.{0, 0, 0, 1};
+
+    d = 1.0 / d;
+    l_ang := ifx radians < 0 then PI_2_64 - (fmod_cycling(-radians, PI_2_64)) else fmod_cycling(radians, PI_2_64);
+    l_sin := sin(l_ang / 2);
+    l_cos := cos(l_ang / 2);
+    return normalize(Quaternion.{cast(float) (d * axis.x * l_sin), cast(float) (d * axis.y * l_sin), cast(float) (d * axis.z * l_sin), cast(float) l_cos});
+}
+
 make_rotation_quaternion :: (velocity: Vector3) -> Quaternion {
     yaw := atan2(velocity.x, velocity.z) + PI;
     rotation_yaw := make_rotation_quaternion(.{0, 1, 0}, yaw);
@@ -3174,9 +3184,15 @@ decompose_twist_and_swing :: (quat: Quaternion, axis: Vector3) -> Quaternion, Qu
 }
 
 get_rotation_around_axis :: (quat: Quaternion, axis: Vector3) -> float {
-    right := axis;
-    forward := cross(.{0, 1, 0}, right);
-    up := cross(right, forward);
+    // WARNING I CHOSE THE +Y AND -Z ARBITRARILY WITHOUT TESTING IF THEY'RE CONSISTENT
+    world_up: Vector3;
+    if abs(dot(axis, .{0, 1, 0})) < abs(dot(axis, .{0, 0, -1})) {
+        world_up = .{0, 1, 0};
+    } else {
+        world_up = .{0, 0, -1};
+    }
+    forward := cross(world_up, axis);
+    up := cross(axis, forward);
 
     quat_vector := rotate(.{0, 0, -1}, quat);
 
@@ -3268,7 +3284,22 @@ project_direction :: (normal: Vector3, direction: Vector3) -> Vector3 {
     return direction - dot(normal, direction) * normal;
 }
 
+project_direction :: (normal: Vector3_64, direction: Vector3_64) -> Vector3_64 {
+    return direction - dot(normal, direction) * normal;
+}
+
+length_squared :: (v: Vector3_64) -> float64 {
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+decompose_correct :: (v: Vector3, dir: Vector3) -> v: Vector3 {
+    dir_strength := dot(normalize(v), dir);
+
+    return v * dir_strength;
+}
+
 decompose :: (v: Vector3, dir: Vector3) -> v: Vector3, v_dir: Vector3 {
+    // Decompose seems to produce weird results. Probably math isn't exactly right.
     dir_strength := dot(v, dir);
 
     v_dir := dir * dir_strength;
@@ -3276,6 +3307,7 @@ decompose :: (v: Vector3, dir: Vector3) -> v: Vector3, v_dir: Vector3 {
 }
 
 decompose_signed :: (v: Vector3, dir: Vector3) -> v: Vector3, v_dir: Vector3 {
+    // Decompose seems to produce weird results. Probably math isn't exactly right.
     dir_strength := dot(v, dir);
     if dir_strength <= 0 {
         return v, .{};
@@ -3737,6 +3769,22 @@ operator - :: (a: float, b: Vector3) -> Vector3 {
 }
 
 // vector 64 stuff
+vector3_64 :: (v: Vector3) -> Vector3_64 {
+    r: Vector3_64 = ---;
+    r.x = v.x;
+    r.y = v.y;
+    r.z = v.z;
+    return r;
+}
+
+vector3 :: (v: Vector3_64) -> Vector3 {
+    r: Vector3 = ---;
+    r.x = cast(float) v.x;
+    r.y = cast(float) v.y;
+    r.z = cast(float) v.z;
+    return r;
+}
+
 normalize :: (v: *Vector3_64, epsilon := 0.0, fallback := Vector3_64.{}) -> float64 {
     sq := length(v);
     if sq <= epsilon {
@@ -4123,7 +4171,7 @@ ease_out_exp :: (t: float) -> float {
     return (1.0 - exp(-t * 2)) / 0.86466472;
 }
 
-smoothstep :: (edge0: $T, edge1: T, x: float) -> T {
+smoothstep :: (edge0: float, edge1: float, x: float) -> float {
     t := clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }
