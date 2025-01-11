@@ -1458,6 +1458,11 @@ intersects :: (sphere: Sphere, plane: Plane3) -> bool {
     return abs(dist) <= sphere.radius;
 }
 
+intersects :: (a: Sphere, b: Sphere) -> bool {
+    radius := a.radius + b.radius;
+    return distance_squared(a.center, b.center) < radius * radius;
+}
+
 contains :: (sphere: Sphere, point: Vector3) -> bool {
     return distance_squared(sphere.center, point) <= sphere.radius * sphere.radius;
 }
@@ -3199,6 +3204,22 @@ get_rotation_around_axis :: (quat: Quaternion, axis: Vector3) -> float {
     return atan2(dot(quat_vector, up), dot(quat_vector, forward));
 }
 
+inverse :: (quat: Quaternion) -> Quaternion {
+    factor := quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w;
+
+    if factor == 0 {
+        return quat;
+    }
+
+    r: Quaternion = ---;
+    r.x = -quat.x / factor;
+    r.y = -quat.y / factor;
+    r.z = -quat.z / factor;
+    r.w = quat.w / factor;
+
+    return r;
+}
+
 normalize :: (using quat: Quaternion) -> Quaternion {
     sq := sqrt(x * x + y * y + z * z + w * w);
     if sq == 0 {
@@ -3264,6 +3285,33 @@ quat_slerp :: (qa: Quaternion, qb1: Quaternion, t: float) -> Quaternion {
 	qm.y = (qa.y * ratio_a + qb.y * ratio_b);
 	qm.z = (qa.z * ratio_a + qb.z * ratio_b);
 	return qm;
+}
+
+rotation_vector_between :: (source: Quaternion, dest: Quaternion) -> Vector3 {
+    norm_source := normalize(source);
+    norm_dest := normalize(dest);
+
+    dot := norm_source.x * norm_dest.x + norm_source.y * norm_dest.y + norm_source.z * norm_dest.z + norm_source.w * norm_dest.w;
+    if dot < 0 {
+        norm_dest = -norm_dest;
+        // dot = -dot;
+    }
+
+    relative_rotation := norm_dest * inverse(norm_source);
+    relative_rotation = normalize(relative_rotation);
+
+    w := clamp(relative_rotation.w, -1, 1);
+
+    angle := 2 * acos(w);
+
+    sin_theta_over_two := sqrt(1 - w * w);
+
+    if sin_theta_over_two < 0.00001 {
+        return .{};
+    } else {
+        axis := relative_rotation.xyz / sin_theta_over_two;
+        return axis * angle;
+    }
 }
 
 // vector stuff
