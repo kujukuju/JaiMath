@@ -137,8 +137,8 @@ Plane3_64 :: union {
     struct {
         a, b, c, d : float64;
     }
-    
-    n: Vector3_64;
+
+    normal: Vector3_64;
 }
 
 create_plane3 :: (p: Vector3, n: Vector3) -> Plane3 {
@@ -395,10 +395,10 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
     get_intersection :: (a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2, p: *Vector2) -> bool {
         s1 := a1 - a2;
 		s2 := b1 - b2;
-		
+
 		// compute the cross product (the determinant if we used matrix solving techniques)
 		det := cross(s2, s1);
-		
+
 		// make sure the matrix isn't singular (the lines could be parallel)
 		if abs(det) <= EPSILON {
 			// return false since there is no way that the segments could be intersecting
@@ -406,15 +406,15 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
 		} else {
 			// pre-divide the determinant
 			det = 1.0 / det;
-			
+
 			// compute t2
 			t2 := det * (cross(s1, a1) - cross(s1, b1));
-			
+
 			// compute the intersection point
 			// P = B1(1.0 - t2) + B2(t2)
 			p.x = b1.x * (1.0 - t2) + b2.x * t2;
 			p.y = b1.y * (1.0 - t2) + b2.y * t2;
-			
+
 			// return that they intersect
 			return true;
 		}
@@ -435,7 +435,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
     get_segment_intersection :: (ap1: Vector2, ap2: Vector2, bp1: Vector2, bp2: Vector2) -> bool {
 		A := ap2 - ap1;
 		B := bp2 - bp1;
-		
+
 		// compute the bottom
         // cross if flipped for some reason
 		BxA := cross(A, B);
@@ -443,24 +443,24 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
 			// the line segments are parallel and don't intersect
 			return false;
 		}
-		
+
 		// compute the top
 		ambxA := cross(A, ap1 - bp1);
 		if abs(ambxA) <= EPSILON {
 			// the line segments are coincident
 			return false;
 		}
-		
+
 		// compute tb
 		tb := ambxA / BxA;
 		if tb < 0.0 || tb > 1.0 {
 			// no intersection
 			return false;
 		}
-		
+
 		// compute the intersection point
 		ip := B * tb + bp1;
-		
+
 		// since both are segments we need to verify that
 		// ta is also valid.
 		// compute ta
@@ -469,7 +469,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
 			// no intersection
 			return false;
 		}
-		
+
 		return true;
     }
 
@@ -477,15 +477,15 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
         s := polygon.count;
 		iv0, iv, iv1: Vector2;
 		jv0, jv, jv1: Vector2;
-		
+
 		iv0 = polygon[ifx i == 0 then s - 1 else i - 1];
 		iv = polygon[i];
 		iv1 = polygon[ifx i + 1 == s then 0 else i + 1];
-		
+
 		jv0 = polygon[ifx j == 0 then s - 1 else j - 1];
 		jv = polygon[j];
 		jv1 = polygon[ifx j + 1 == s then 0 else j + 1];
-		
+
 		// can i see j
 		if is_reflex(iv0, iv, iv1) {
 			if left_on(iv, iv0, jv) && right_on(iv, iv1, jv) {
@@ -514,18 +514,18 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
             }
 			k1 := polygon[k];
 			k2 := polygon[ki1];
-			
+
 			if get_segment_intersection(iv, jv, k1, k2) {
                 return false;
             }
 		}
-		
+
 		return true;
     }
 
     // get the size of the given polygon
     size := polygon.count;
-    
+
     // initialize
     upper_intersection: Vector2;
     lower_intersection: Vector2;
@@ -540,31 +540,31 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
     defer array_free(upper);
     lower: [..] Vector2;
     defer array_free(lower);
-    
+
     // loop over all the vertices
     for i: 0..size - 1 {
         // get the current vertex
         p: Vector2 = polygon[i];
-        
+
         // get the adjacent vertices
         p0: Vector2 = polygon[ifx i - 1 < 0 then size - 1 else i - 1];
         p1: Vector2 = polygon[ifx i + 1 == size then 0 else i + 1];
-        
+
         // check if the vertex is a reflex vertex
         if is_reflex(p0, p, p1) {
             // loop over the vertices to determine if both extended
-            // adjacent edges intersect one edge (in which case a 
+            // adjacent edges intersect one edge (in which case a
             // steiner point will be added)
             for j: 0..size - 1 {
                 q: Vector2 = polygon[j];
-                
+
                 // get the adjacent vertices
                 q0: Vector2 = polygon[ifx j - 1 < 0 then size - 1 else j - 1];
                 q1: Vector2 = polygon[ifx j + 1 == size then 0 else j + 1];
-                
+
                 // create a storage location for the intersection point
                 s: Vector2;
-                
+
                 // extend the previous edge
                 // does the line p0->p go between the vertices q and q0
                 if left(p0, p, q) && right_on(p0, p, q0) {
@@ -585,7 +585,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                         }
                     }
                 }
-                
+
                 // extend the next edge
                 // does the line p1->p go between q and q1
                 if left(p1, p, q1) && right_on(p1, p, q) {
@@ -607,15 +607,15 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                     }
                 }
             }
-            
+
             // if the lower index and upper index are equal then this means
-            // that the range of p only included an edge (both extended previous 
+            // that the range of p only included an edge (both extended previous
             // and next edges of p only intersected the same edge, therefore no
             // point exists within that range to connect to)
             if lower_index == (upper_index + 1) % size {
                 // create a steiner point in the middle
                 s := (upper_intersection + lower_intersection) * 0.5;
-                
+
                 // partition the polygon
                 if i < upper_index {
                     add_all(*lower, sublist(polygon, i, upper_index + 1));
@@ -639,17 +639,17 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                 if lower_index > upper_index {
                     upper_index += size;
                 }
-                
+
                 closest_index = lower_index;
                 // find the closest visible point
                 for j: lower_index..upper_index {
                     jmod := j % size;
                     q: Vector2 = polygon[jmod];
-                    
+
                     if q == p || q == p0 || q == p1 {
                         continue;
                     }
-                    
+
                     // check the distance first, since this is generally
                     // a much faster operation than checking if its visible
                     dist := distance_squared(p, q);
@@ -660,7 +660,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                         }
                     }
                 }
-                
+
                 // once we find the closest partition the polygon
                 if i < closest_index {
                     add_all(*lower, sublist(polygon, i, closest_index + 1));
@@ -676,7 +676,7 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                     add_all(*upper, sublist(polygon, closest_index, i + 1));
                 }
             }
-            
+
             // decompose the smaller first
             if lower.count < upper.count {
                 decompose(lower, polygons);
@@ -685,12 +685,12 @@ decompose :: (polygon: [] Vector2, polygons: *[..][..] Vector2) {
                 decompose(upper, polygons);
                 decompose(lower, polygons);
             }
-            
+
             // if the given polygon contains a reflex vertex, then return
             return;
         }
     }
-    
+
     // if we get here, we know the given polygon has 0 reflex vertices
     // and is therefore convex, add it to the list of convex polygons
     if polygon.count < 3 {
@@ -938,7 +938,7 @@ overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
             }
         }
     }
-    
+
     // if the smallest penetration normal
     //     points into shape b,
     //     flip it
@@ -949,7 +949,7 @@ overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
     // now oaxis is the axis along which
     //     the smallest penetration occurred
     // the resolution vector is that axis normal
-    //     multiplied by the smallest 
+    //     multiplied by the smallest
     //     penetration amount
     resolution := oaxis * overlap;
 
@@ -990,7 +990,7 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     // (v[0], v[low], v[high]) the point p lies within the near sides of
     low := 0;
     high := polygon.count;
-    
+
     mid := (low + high) / 2;
     triangle: Triangle2 = ---;
     triangle.a = polygon[0];
@@ -1001,7 +1001,7 @@ intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
     } else {
         high = mid;
     }
-    
+
     while low + 1 < high {
         mid = (low + high) / 2;
         triangle.a = polygon[0];
@@ -1269,7 +1269,7 @@ nearest_point :: (cylinder: Cylinder, point: Vector3) -> Vector3, float {
     if abdot < EPSILON {
         return point, 0;
     }
-    
+
     t := dot(point - cylinder.p, ab) / abdot;
     if t < 0 {
         plane_d := dot(ab, cylinder.p);
@@ -1308,7 +1308,7 @@ contains :: (cylinder: Cylinder, point: Vector3) -> bool {
     if abdot < EPSILON {
         return false;
     }
-    
+
     t := dot(point - cylinder.p, ab) / abdot;
     if t < 0.0 {
         return false;
@@ -1427,7 +1427,7 @@ intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
 intersects :: (sphere: Sphere, ray: Ray3) -> bool {
     // p179
     #if DEBUG validate_unit_vector(ray.dir);
-    
+
     m := ray.p - sphere.center;
     c := dot(m, m) - sphere.radius * sphere.radius;
     // If there is definitely at least one real root, there must be an intersection
@@ -1450,10 +1450,10 @@ intersects :: (sphere: Sphere, ray: Ray3) -> bool {
 
 intersects :: (sphere: Sphere, plane: Plane3) -> bool {
     // p160
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
     // for a point gives the signed distance of the point to the plane
-    dist := dot(sphere.center, plane.n) - plane.d;
+    dist := dot(sphere.center, plane.normal) - plane.d;
     // If sphere center within +/-radius from plane, plane intersects sphere
     return abs(dist) <= sphere.radius;
 }
@@ -1470,46 +1470,46 @@ contains :: (sphere: Sphere, point: Vector3) -> bool {
 // plane stuff
 intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     // p208
-    #if DEBUG validate_unit_vector(plane1.n);
-    #if DEBUG validate_unit_vector(plane2.n);
+    #if DEBUG validate_unit_vector(plane1.normal);
+    #if DEBUG validate_unit_vector(plane2.normal);
 
     // Given planes p1 and p2, compute line L = p+t*d of their intersection.
     // Return 0 if no such line exists
     // Compute direction of intersection line
-    d := cross(plane1.n, plane2.n);
+    d := cross(plane1.normal, plane2.normal);
     // If d is zero, the planes are parallel (and separated)
     // or coincident, so they’re not considered intersecting
     if dot(d, d) < EPSILON {
         return .{.{0, 0, 0}, .{0, 0, 0}}, false;
     }
 
-    d11 := dot(plane1.n, plane1.n);
-    d12 := dot(plane1.n, plane2.n);
-    d22 := dot(plane2.n, plane2.n);
+    d11 := dot(plane1.normal, plane1.normal);
+    d12 := dot(plane1.normal, plane2.normal);
+    d22 := dot(plane2.normal, plane2.normal);
     denom := d11 * d22 - d12 * d12;
     k1 := (plane1.d * d22 - plane2.d * d12) / denom;
     k2 := (plane2.d * d11 - plane1.d * d12) / denom;
 
     ray: Ray3 = ---;
-    ray.p = k1 * plane1.n + k2 * plane2.n;
+    ray.p = k1 * plane1.normal + k2 * plane2.normal;
     ray.dir = d;
     return ray, true;
 }
 
 intersection_simple :: (plane: Plane3, ray: Ray3) -> Vector3, float {
     // for optimized version of intersection when you don't care about unit vectors either
-    t := (plane.d - dot(plane.n, ray.p)) / dot(plane.n, ray.dir);
+    t := (plane.d - dot(plane.normal, ray.p)) / dot(plane.normal, ray.dir);
     return ray.p + t * ray.dir, t;
 }
 
 intersection :: (plane: Plane3, ray: Ray3, $allow_negative: bool = false) -> Vector3, bool, float {
     // p176
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
     #if DEBUG validate_unit_vector(ray.dir);
 
     // does not handle division by 0
     // compute the t value for the directed line ab intersecting the plane
-    t := (plane.d - dot(plane.n, ray.p)) / dot(plane.n, ray.dir);
+    t := (plane.d - dot(plane.normal, ray.p)) / dot(plane.normal, ray.dir);
 
     #if allow_negative {
         return ray.p + t * ray.dir, true, t;
@@ -1530,12 +1530,12 @@ intersection :: (plane: Plane3, line: Line3) -> Vector3, bool {
 
 intersection :: (plane: Plane3, line: Line3, t: *float) -> Vector3, bool {
     // p176
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    << t = (plane.d - dot(plane.n, line.p1)) / dot(plane.n, ab);
+    << t = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
     // If t in [0..1] compute and return intersection point
     if << t >= 0 && << t <= 1 {
         return line.p1 + << t * ab, true;
@@ -1551,12 +1551,12 @@ intersects :: (plane: Plane3, line: Line3) -> bool {
 
 intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
     // p176
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    << t = (plane.d - dot(plane.n, line.p1)) / dot(plane.n, ab);
+    << t = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
     // If t in [0..1] compute and return intersection point
     if << t >= 0 && << t <= 1 {
         return true;
@@ -1566,45 +1566,45 @@ intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
 }
 
 outside :: (plane: Plane3, point: Vector3) -> bool {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
-    return dot(point, plane.n) > plane.d;
+    return dot(point, plane.normal) > plane.d;
 }
 
 inside :: (plane: Plane3, point: Vector3) -> bool {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
-    return dot(point, plane.n) <= plane.d;
+    return dot(point, plane.normal) <= plane.d;
 }
 
 // Determine whether sphere s is fully behind (inside negative halfspace of) plane p
 inside :: (plane: Plane3, sphere: Sphere) -> bool {
     // p161
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
-    dist := dot(sphere.center, plane.n) - plane.d;
+    dist := dot(sphere.center, plane.normal) - plane.d;
     return dist < -sphere.radius;
 }
 
 nearest_point :: (plane: $T/AnyPlane3, point: $P/AnyVector3) -> P {
     // p127
-    #if DEBUG validate_unit_vector(plane.n);
-    
-    t := dot(plane.n, point) - plane.d;
-    return point - t * plane.n;
+    #if DEBUG validate_unit_vector(plane.normal);
+
+    t := dot(plane.normal, point) - plane.d;
+    return point - t * plane.normal;
 }
 
 distance :: (plane: Plane3, point: Vector3) -> float {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
-    return dot(point, plane.n) - plane.d;
+    return dot(point, plane.normal) - plane.d;
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
 
 distance :: (plane: Plane3_64, point: Vector3_64) -> float64 {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
-    return dot(point, plane.n) - plane.d;
+    return dot(point, plane.normal) - plane.d;
     // return (Dot(p.n, q) - p.d) / Dot(p.n, p.n); if plane equation is not normalized
 }
 
@@ -1612,16 +1612,16 @@ distance :: (plane: Plane3_64, point: Vector3_64) -> float64 {
 // returns the 2d coordinates in the newly determined system
 // it also returns the right and up vectors in 3d space
 convert_coordinates :: (plane: Plane3, origin: Vector3, point: Vector3) -> Vector2, Vector3, Vector3 {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
     up := Vector3.{0, 1, 0};
-    if abs(dot(plane.n, up)) > 0.5 {
+    if abs(dot(plane.normal, up)) > 0.5 {
         up = Vector3.{0, 0, -1};
     }
 
     projected := nearest_point(plane, point);
-    plane_right := normalize(cross(plane.n, up));
-    plane_up := normalize(cross(plane_right, plane.n));
+    plane_right := normalize(cross(plane.normal, up));
+    plane_up := normalize(cross(plane_right, plane.normal));
 
     assert(distance(plane, origin) < 0.00001, "Invalid plane origin.\n");
     point_delta := projected - origin;
@@ -1630,16 +1630,16 @@ convert_coordinates :: (plane: Plane3, origin: Vector3, point: Vector3) -> Vecto
 }
 
 convert_coordinates :: (plane: Plane3_64, origin: Vector3_64, point: Vector3_64) -> Vector2_64, Vector3_64, Vector3_64 {
-    #if DEBUG validate_unit_vector(plane.n);
+    #if DEBUG validate_unit_vector(plane.normal);
 
     up := Vector3_64.{0, 1, 0};
-    if abs(dot(plane.n, up)) > 0.5 {
+    if abs(dot(plane.normal, up)) > 0.5 {
         up = Vector3_64.{0, 0, -1};
     }
 
     projected := nearest_point(plane, point);
-    plane_right := normalize(cross(plane.n, up));
-    plane_up := normalize(cross(plane_right, plane.n));
+    plane_right := normalize(cross(plane.normal, up));
+    plane_up := normalize(cross(plane_right, plane.normal));
 
     assert(distance(plane, origin) < 0.00001, "Invalid plane origin.\n");
     point_delta := projected - origin;
@@ -1734,9 +1734,9 @@ intersects :: (aabb: AABB3, plane: Plane3) -> bool {
     c := (aabb.upper + aabb.lower) * 0.5; // Compute AABB center
     e := aabb.upper - c; // Compute positive extents
     // Compute the projection interval radius of b onto L(t) = b.c + t * p.n
-    r := e.x * abs(plane.n.x) + e.y * abs(plane.n.y) + e.z * abs(plane.n.z);
+    r := e.x * abs(plane.normal.x) + e.y * abs(plane.normal.y) + e.z * abs(plane.normal.z);
     // Compute distance of box center from plane
-    s := dot(plane.n, c) - plane.d;
+    s := dot(plane.normal, c) - plane.d;
     // Intersection occurs when distance s falls within [-r,+r] interval
     return abs(s) <= r;
 }
@@ -1809,8 +1809,8 @@ intersects :: (aabb: AABB3, triangle: Triangle3) -> bool {
 
     // test separating axis corresponding to triangle face normal (category 2)
     plane: Plane3 = ---;
-    plane.n = cross(f0, f1);
-    plane.d = dot(plane.n, v0);
+    plane.normal = cross(f0, f1);
+    plane.d = dot(plane.normal, v0);
 
     // aabb, plane
     return inline intersects(aabb, plane);
@@ -2001,7 +2001,7 @@ nearest_point :: (aabb: AABB2, point: Vector2) -> Vector2 {
     x = max(x, aabb.lower.x);
     x = min(x, aabb.upper.x);
     nearest.x = x;
-    
+
     y := point.y;
     y = max(y, aabb.lower.y);
     y = min(y, aabb.upper.y);
@@ -2018,12 +2018,12 @@ nearest_point :: (aabb: AABB3, point: Vector3) -> Vector3 {
     x = max(x, aabb.lower.x);
     x = min(x, aabb.upper.x);
     nearest.x = x;
-    
+
     y := point.y;
     y = max(y, aabb.lower.y);
     y = min(y, aabb.upper.y);
     nearest.y = y;
-    
+
     z := point.z;
     z = max(z, aabb.lower.z);
     z = min(z, aabb.upper.z);
@@ -2050,7 +2050,7 @@ distance_squared :: (aabb: AABB2, point: Vector2) -> float {
     if point.x > aabb.upper.x {
         dist += (point.x - aabb.upper.x) * (point.x - aabb.upper.x);
     }
-    
+
     if point.y < aabb.lower.y {
         dist += (aabb.lower.y - point.y) * (aabb.lower.y - point.y);
     }
@@ -2071,14 +2071,14 @@ distance_squared :: (aabb: AABB3, point: Vector3) -> float {
     if point.x > aabb.upper.x {
         dist += (point.x - aabb.upper.x) * (point.x - aabb.upper.x);
     }
-    
+
     if point.y < aabb.lower.y {
         dist += (aabb.lower.y - point.y) * (aabb.lower.y - point.y);
     }
     if point.y > aabb.upper.y {
         dist += (point.y - aabb.upper.y) * (point.y - aabb.upper.y);
     }
-    
+
     if point.z < aabb.lower.z {
         dist += (aabb.lower.z - point.z) * (aabb.lower.z - point.z);
     }
@@ -2332,7 +2332,7 @@ is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 
 // triangle stuff
 operator == :: (a: Triangle3, b: Triangle3) -> bool {
-    return a.a == b.a && a.b == b.b && a.c == b.c;    
+    return a.a == b.a && a.b == b.b && a.c == b.c;
 }
 
 get_normal :: (triangle: Triangle3) -> Vector3 {
@@ -2605,7 +2605,7 @@ nearest_point :: (ray: Ray3, point: Vector3) -> Vector3, float {
 
 distance :: (ray: Ray2, point: Vector2) -> float {
     #if DEBUG validate_unit_vector(ray.dir);
-    
+
     a := ray.p;
     b := ray.p + ray.dir;
     c := point;
@@ -2672,7 +2672,7 @@ nearest_point :: (line1: Line3, line2: Line3) -> p1: Vector3, p2: Vector3, t1: f
     t: float;
     c1: Vector3;
     c2: Vector3;
-    
+
     // Check if either or both segments degenerate into points
     if a <= EPSILON && e <= EPSILON {
         // Both segments degenerate into points
@@ -2692,7 +2692,7 @@ nearest_point :: (line1: Line3, line2: Line3) -> p1: Vector3, p2: Vector3, t1: f
         // Second segment degenerates into a point
         t = 0.0;
         // t = 0 => s = (b*t - c) / a = -c / a
-        s = clamp(-c / a, 0.0, 1.0); 
+        s = clamp(-c / a, 0.0, 1.0);
     } else {
         c: float = dot(d1, r);
         // The general nondegenerate case starts here
@@ -2743,7 +2743,7 @@ nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: f
     t: float;
     c1: Vector2;
     c2: Vector2;
-    
+
     // Check if either or both segments degenerate into points
     if a <= EPSILON && e <= EPSILON {
         // Both segments degenerate into points
@@ -2765,7 +2765,7 @@ nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: f
         // Second segment degenerates into a point
         t = 0.0;
         // t = 0 => s = (b*t - c) / a = -c / a
-        s = clamp(-c / a, 0.0, 1.0); 
+        s = clamp(-c / a, 0.0, 1.0);
     } else {
         c: float = dot(d1, r);
         // The general nondegenerate case starts here
@@ -2858,7 +2858,7 @@ nearest_point :: (line: Line2, point: Vector2) -> Vector2, float {
     if abdot < EPSILON {
         return line.p1, 0;
     }
-    
+
     t := dot(point - line.p1, ab) / abdot;
     if t < 0.0 {
         t = 0.0;
@@ -2877,7 +2877,7 @@ nearest_point :: (line: Line3, point: Vector3) -> Vector3, float {
     if abdot < EPSILON {
         return line.p1, 0;
     }
-    
+
     t := dot(point - line.p1, ab) / abdot;
     if t < 0.0 {
         t = 0.0;
@@ -2902,7 +2902,7 @@ distance_squared :: (line: Line2, point: Vector2) -> float {
     ab := line.p2 - line.p1;
     ac := point - line.p1;
     bc := point - line.p2;
-    
+
     e := dot(ac, ab);
     if e <= 0 {
         return dot(ac, ac);
@@ -2921,7 +2921,7 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
     ab := line.p2 - line.p1;
     ac := point - line.p1;
     bc := point - line.p2;
-    
+
     e := dot(ac, ab);
     if e <= 0 {
         return dot(ac, ac);
@@ -2938,9 +2938,7 @@ distance_squared :: (line: Line3, point: Vector3) -> float {
 // array stuff
 reverse :: (v: [] $T) {
     for i: 0..v.count / 2 - 1 {
-        p1, p2 := swap(v.data[i], v.data[v.count - i - 1]);
-        v.data[i] = p1;
-        v.data[v.count - i - 1] = p2;
+        v[i], v[v.count - i - 1] = v[v.count - i - 1], v[i];
     }
 }
 
@@ -3062,7 +3060,7 @@ intersects :: (frustum: Frustum, aabb: AABB3) -> bool {
         // if i == 0 || i == 1 || i == 3 || i == 4 {
         //     continue;
         // }
-        
+
         for point: aabb_points {
             if dot(point, frustum.normals[i].xyz) - frustum.normals[i].w >= 0 {
                 continue i;
@@ -3278,8 +3276,8 @@ quat_slerp :: (qa: Quaternion, qb1: Quaternion, t: float) -> Quaternion {
 		return qm;
 	}
 	ratio_a := sin((1 - t) * half_theta) / sin_half_theta;
-	ratio_b := sin(t * half_theta) / sin_half_theta; 
-    
+	ratio_b := sin(t * half_theta) / sin_half_theta;
+
 	qm.w = (qa.w * ratio_a + qb.w * ratio_b);
 	qm.x = (qa.x * ratio_a + qb.x * ratio_b);
 	qm.y = (qa.y * ratio_a + qb.y * ratio_b);
@@ -3721,7 +3719,7 @@ normalize :: (v: Vector2) -> Vector2 {
     if len2 == 0 {
         return Vector2.{0, 0};
     }
-    
+
     len := sqrt(len2);
 
     r: Vector2 = ---;
@@ -4319,7 +4317,7 @@ radians_between :: (start: float, end: float) -> float {
         y: int;
         z: int;
     }
-    
+
     operator + :: (aabb: AABB2, v: Vector2i) -> AABB2 #symmetric {
         r: AABB2 = ---;
         r.lower = aabb.lower + v;
@@ -4333,7 +4331,7 @@ radians_between :: (start: float, end: float) -> float {
         r.upper = aabb.upper + v;
         return r;
     }
-    
+
     get_pixels :: (line: Line2i, inclusive: bool = true) -> [..] Vector2i {
         // modified bresenham’s to handle reverse lines and vertical lines
         x1 := line.p1.x;
@@ -4467,7 +4465,7 @@ radians_between :: (start: float, end: float) -> float {
         r.upper = roundi(aabb.upper);
         return r;
     }
-    
+
     roundi :: (v: Vector2) -> Vector2i {
         r: Vector2i = ---;
         r.x = cast(int) round(v.x);
@@ -4482,7 +4480,7 @@ radians_between :: (start: float, end: float) -> float {
         r.z = cast(int) round(v.z);
         return r;
     }
-    
+
     xy :: (x: int, y: int) -> Vector2i {
         r: Vector2i = ---;
         r.x = x;
