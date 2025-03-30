@@ -905,7 +905,7 @@ overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
 
     for shape: 0..1 {
         if shape == 1 {
-            sa, sb = swap(sa, sb);
+            sa, sb = sb, sa;
         }
 
         // TODO in reality we can take advantage of the fact that we know the max polygon size
@@ -1091,6 +1091,69 @@ intersection :: (polygon: [] Vector2, line: Line2, normal: *Vector2) -> Vector2,
     return min_point, min_hit;
 }
 
+get_normal :: (polygon: [] Vector3) -> Vector3 {
+    normal: Vector3;
+    for i: 0..polygon.count - 1 {
+        line1 := Line3.{polygon[i], polygon[(i + 1) % polygon.count]};
+        line2 := Line3.{polygon[(i + 1) % polygon.count], polygon[(i + 2) % polygon.count]};
+
+        normal += cross(normalize(line1.p2 - line1.p1), normalize(line2.p2 - line2.p1));
+    }
+
+    return normalize(normal);
+}
+
+get_plane :: (polygon: [] Vector3) -> Plane3, Vector3 {
+    center: Vector3;
+    for i: 0..polygon.count - 1 {
+        center += polygon[i];
+    }
+    center /= polygon.count;
+
+    return create_plane3(center, get_normal(polygon)), center;
+}
+
+intersects :: (polygon: [] Vector3, point: Vector3) -> bool {
+    normal := get_normal(polygon);
+
+    return intersects(polygon, normal, point);
+}
+
+intersects :: (polygon: [] Vector3, normal: Vector3, point: Vector3) -> bool {
+    for i: 0..polygon.count - 1 {
+        curr := polygon[i];
+        next := polygon[(i + 1) % polygon.count];
+
+        dir1 := next - curr;
+        dir2 := point - next;
+
+        if dot(cross(dir1, dir2), normal) < -0.0001 {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+area :: (polygon: [] Vector3) -> float {
+    if polygon.count < 3 {
+        return 0;
+    }
+
+    plane, center := get_plane(polygon);
+    sum_a := 0.0;
+    sum_b := 0.0;
+    for i: 0..polygon.count - 1 {
+        curr := convert_coordinates(plane, center, polygon[i]);
+        next := convert_coordinates(plane, center, polygon[(i + 1) % polygon.count]);
+
+        sum_a += curr.x * next.y;
+        sum_b += curr.y * next.x;
+    }
+
+    return abs(sum_a - sum_b) * 0.5;
+}
+
 FixedPolygon :: struct (max_count: int) {
     vertices: [max_count] Vector2;
     count: int;
@@ -1123,7 +1186,7 @@ fixed_polygon :: (vertices: [$N] Vector2, count: int) -> FixedPolygon(N) {
 
 reverse :: (fixed: *FixedPolygon($N)) {
     for i: 0..fixed.count / 2 - 1 {
-        fixed.vertices[i], fixed.vertices[fixed.count - i - 1] = swap(fixed.vertices[i], fixed.vertices[fixed.count - i - 1]);
+        fixed.vertices[i], fixed.vertices[fixed.count - i - 1] = fixed.vertices[fixed.count - i - 1], fixed.vertices[i];
     }
 }
 
@@ -1140,6 +1203,10 @@ contains :: (fixed: FixedPolygon($N), other: FixedPolygon($M)) -> bool {
     }
 
     return true;
+}
+
+split_convex_polygon_delaunay :: (vertices: [] Vector3, $max_count: int) -> [..] FixedPolygon(max_count) {
+
 }
 
 split_convex_polygon :: (vertices: [] Vector2, $max_count: int) -> [..] FixedPolygon(max_count) {
@@ -1496,10 +1563,14 @@ intersection :: (plane1: Plane3, plane2: Plane3) -> Ray3, bool {
     return ray, true;
 }
 
-intersection_simple :: (plane: Plane3, ray: Ray3) -> Vector3, float {
+intersection_simple :: (plane: Plane3, ray: Ray3) -> Vector3, float, bool {
     // for optimized version of intersection when you don't care about unit vectors either
+    if dot(plane.normal, ray.dir) == 0 {
+        return .{}, 0, false;
+    }
+
     t := (plane.d - dot(plane.normal, ray.p)) / dot(plane.normal, ray.dir);
-    return ray.p + t * ray.dir, t;
+    return ray.p + t * ray.dir, t, true;
 }
 
 intersection :: (plane: Plane3, ray: Ray3, $allow_negative: bool = false) -> Vector3, bool, float {
@@ -1847,7 +1918,7 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
         t2 := (aabb.upper.x - ray.p.x) * ood;
         // Make t1 be intersection with near plane, t2 with far plane
         if t1 > t2 {
-            t1, t2 = swap(t1, t2);
+            t1, t2 = t2, t1;
         }
         // Compute the intersection of slab intersection intervals
         if t1 > << t {
@@ -1873,7 +1944,7 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
         t2 := (aabb.upper.y - ray.p.y) * ood;
         // Make t1 be intersection with near plane, t2 with far plane
         if t1 > t2 {
-            t1, t2 = swap(t1, t2);
+            t1, t2 = t2, t1;
         }
         // Compute the intersection of slab intersection intervals
         if t1 > << t {
@@ -1913,7 +1984,7 @@ intersection :: (aabb: AABB3, ray: Ray3, tmin: *float) -> Vector3, bool {
             t2 := (amax[i] - p[i]) / d[i];
 
             if t1 > t2 {
-                t1, t2 = swap(t1, t2);
+                t1, t2 = t2, t1;
             }
 
             << tmin = max(<< tmin, t1);
@@ -2549,6 +2620,10 @@ nearest_point :: (triangle: Triangle3, point: Vector3) -> Vector3 {
 
 area :: (triangle: Triangle3) -> float {
     return length(cross(triangle.c - triangle.a, triangle.c - triangle.b)) / 2.0;
+}
+
+perimeter :: (triangle: Triangle3) -> float {
+    return distance(triangle.a, triangle.b) + distance(triangle.b, triangle.c) + distance(triangle.c, triangle.a);;
 }
 
 area_signed :: (triangle: Triangle2) -> float {
@@ -3769,6 +3844,14 @@ operator / :: (a: Vector2, b: int) -> Vector2 {
     return r;
 }
 
+operator / :: (a: Vector3, b: int) -> Vector3 {
+    r: Vector3 = ---;
+    r.x = a.x / b;
+    r.y = a.y / b;
+    r.z = a.z / b;
+    return r;
+}
+
 operator * :: (a: Vector2, b: int) -> Vector2 #symmetric {
     r: Vector2 = ---;
     r.x = a.x * b;
@@ -4226,13 +4309,10 @@ fmod :: fmod_cycling;
 
 sign :: (value: int) -> int {
     return cast(int) (0 < value) - cast(int) (value < 0);
-    // if value < 0 {
-    //     return -1;
-    // } else if value > 0 {
-    //     return 1;
-    // }
+}
 
-    // return 0;
+sign :: (value: s32) -> s32 {
+    return cast(s32) (0 < value) - cast(s32) (value < 0);
 }
 
 dot :: (a: float, b: float) -> float {
