@@ -316,6 +316,22 @@ intersects_concave :: (polygon: [] Vector2, point: Vector2) -> bool {
     return odd_nodes;
 }
 
+intersects_concave :: (lines: [] Line2, point: Vector2) -> bool {
+    odd_nodes := false;
+
+    for line: lines {
+        cond := line.p2.y < point.y && line.p1.y >= point.y || line.p1.y < point.y && line.p2.y >= point.y;
+        cond = cond && (line.p2.x <= point.x || line.p1.x <= point.x);
+        if cond {
+            if line.p2.x + (point.y - line.p2.y) / (line.p1.y - line.p2.y) * (line.p1.x - line.p2.x) < point.x {
+                odd_nodes = !odd_nodes;
+            }
+        }
+    }
+
+    return odd_nodes;
+}
+
 nearest_point_concave :: (polygon: [] Vector2, point: Vector2) -> Vector2 {
     // this method assumes the point is inside the polygon
     nearest_distance_squared := FLOAT32_MAX;
@@ -2800,7 +2816,6 @@ nearest_point :: (line1: Line3, line2: Line3) -> p1: Vector3, p2: Vector3, t1: f
     return c1, c2, s, t, dot(c1 - c2, c1 - c2);
 }
 
-// I put #must here to be sure anything using this breaks since I'm adding more floats
 nearest_point :: (line1: Line2, line2: Line2) -> p1: Vector2, p2: Vector2, t1: float, t2: float, d: float {
     p1 := line1.p1;
     q1 := line1.p2;
@@ -3020,8 +3035,8 @@ reverse :: (v: [] $T) {
 // frustum stuff
 // creates a frustum that allows any object to be rendered infinitely into the distance
 create_camera_frustum :: (projection: Matrix4, view: Matrix4, $clip_far_plane_only: bool = false) -> Frustum {
-    inverse_projection := inverse(projection);
-    inverse_view := inverse(view);
+    inverse_projection := unsafe_inverse(projection);
+    inverse_view := unsafe_inverse(view);
     clip := projection * view;
     inverse_clip := inverse_view * inverse_projection;
 
@@ -3149,7 +3164,7 @@ intersects :: (frustum: Frustum, aabb: AABB3) -> bool {
 }
 
 // matrix stuff
-make_translation_matrix3 :: (v: Vector2) -> Matrix3 #must {
+make_translation_matrix3 :: (v: Vector2) -> Matrix3 {
     m := Matrix3Identity;
 
     m._13 = v.x;
@@ -3158,7 +3173,7 @@ make_translation_matrix3 :: (v: Vector2) -> Matrix3 #must {
     return m;
 }
 
-translate :: (m: Matrix3, v: Vector2) -> Matrix3 #must {
+translate :: (m: Matrix3, v: Vector2) -> Matrix3 {
     result := m;
     inline translate(*result, v);
     return result;
@@ -3565,25 +3580,6 @@ project_multiple_normals_conformal :: (v_raw: Vector3, normals: [] Vector3) -> V
 scalar_triple :: (u: Vector3, v: Vector3, w: Vector3) -> float {
     return dot(cross(u, v), w);
 }
-
-// normalize :: (using v: Vector2) -> Vector2 #must {
-//     normalize(*v, epsilon, fallback);
-//     return v;
-// }
-
-// normalize :: (using v: *Vector2) -> float {
-//     sq := sqrt(x*x + y*y);
-//     if sq == 0.0 {
-//         <<v = .{};
-//         return sq;
-//     }
-
-//     factor := 1.0 / sq;
-//     x *= factor;
-//     y *= factor;
-
-//     return sq;
-// }
 
 inverse_project :: (dest: Vector2, src: Vector2) -> Vector2 {
     // projects src onto dest but makes a right angle with src so that the final result is much larger
@@ -4910,4 +4906,9 @@ validate_ccw :: inline (v: [] $T/AnyVector2) {
         print_stack_trace(context.stack_trace);
         exit(1);
     }
+}
+
+unsafe_inverse :: (m: Matrix4) -> Matrix4 {
+    _, inv := inverse(m);
+    return inv;
 }
