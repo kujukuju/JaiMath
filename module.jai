@@ -187,12 +187,23 @@ Triangle3 :: struct {
     b: Vector3;
     c: Vector3;
 
-#place a;
-    component: [3] Vector3 = ---;
+#overlay (a) component: [3] Vector3 = ---;
+}
+
+Triangle3_64 :: struct {
+    a: Vector3_64;
+    b: Vector3_64;
+    c: Vector3_64;
+
+#overlay (a) component: [3] Vector3_64 = ---;
 }
 
 create_triangle3 :: (a: Vector3, b: Vector3, c: Vector3) -> Triangle3 {
     return .{a, b, c};
+}
+
+create_triangle3_64 :: (triangle: Triangle3) -> Triangle3_64 {
+    return .{vector3_64(triangle.a), vector3_64(triangle.b), vector3_64(triangle.c)};
 }
 
 Ray2 :: struct {
@@ -232,37 +243,27 @@ Line3 :: struct {
 Vector2_64 :: struct {
     x, y: float64;
 
-#place x;
-    component: [2] float64 = ---;
+#overlay (x) component: [2] float64 = ---;
 }
 
 Vector3_64 :: struct {
     x, y, z: float64;
 
-#place x;
-    xy: Vector2_64 = ---;
-#place y;
-    yz: Vector2_64 = ---;
+#overlay (x) xy: Vector2_64 = ---;
+#overlay (y) yz: Vector2_64 = ---;
 
-#place x;
-    component: [3] float64 = ---;
+#overlay (x) component: [3] float64 = ---;
 }
 
 Vector4_64 :: struct {
     x, y, z, w: float64;
 
-#place x;
-    xy: Vector2_64 = ---;
-#place y;
-    yz: Vector2_64 = ---;
-#place z;
-    zw: Vector2_64 = ---;
-#place x;
-    xyz: Vector3_64 = ---;
-#place y;
-    yzw: Vector3_64 = ---;
-#place x;
-    component: [4] float64 = ---;
+#overlay (x) xy: Vector2_64 = ---;
+#overlay (y) yz: Vector2_64 = ---;
+#overlay (z) zw: Vector2_64 = ---;
+#overlay (x) xyz: Vector3_64 = ---;
+#overlay (y) yzw: Vector3_64 = ---;
+#overlay (x) component: [4] float64 = ---;
 }
 
 Matrix3Identity :: Matrix3.{
@@ -1100,7 +1101,7 @@ intersection :: (polygon: [] Vector2, line: Line2, normal: *Vector2) -> Vector2,
             min_t = t;
             min_point = point;
             min_hit = true;
-            << normal = perp(poly_line.p2 - poly_line.p1);
+            normal.* = perp(poly_line.p2 - poly_line.p1);
         }
     }
 
@@ -1499,12 +1500,12 @@ intersection :: (sphere: Sphere, ray: Ray3, t: *float) -> Vector3, bool {
         return .{0, 0, 0}, false;
     }
     // Ray now found to intersect sphere, compute smallest t value of intersection
-    << t = -b - sqrt(discr);
+    t.* = -b - sqrt(discr);
     // If t is negative, ray started inside sphere so clamp t to zero
-    if << t < 0 {
-        << t = 0;
+    if t.* < 0 {
+        t.* = 0;
     }
-    return ray.p + << t * ray.dir, true;
+    return ray.p + t.* * ray.dir, true;
 }
 
 intersects :: (sphere: Sphere, ray: Ray3) -> bool {
@@ -1622,10 +1623,10 @@ intersection :: (plane: Plane3, line: Line3, t: *float) -> Vector3, bool {
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    << t = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
+    t.* = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
     // If t in [0..1] compute and return intersection point
-    if << t >= 0 && << t <= 1 {
-        return line.p1 + << t * ab, true;
+    if t.* >= 0 && t.* <= 1 {
+        return line.p1 + t.* * ab, true;
     }
     // Else no intersection
     return .{0, 0, 0}, false;
@@ -1643,9 +1644,9 @@ intersects :: (plane: Plane3, line: Line3, t: *float) -> bool {
     // does not handle division by 0
     // Compute the t value for the directed line ab intersecting the plane
     ab := line.p2 - line.p1;
-    << t = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
+    t.* = (plane.d - dot(plane.normal, line.p1)) / dot(plane.normal, ab);
     // If t in [0..1] compute and return intersection point
-    if << t >= 0 && << t <= 1 {
+    if t.* >= 0 && t.* <= 1 {
         return true;
     }
     // Else no intersection
@@ -1829,78 +1830,123 @@ intersects :: (aabb: AABB3, plane: Plane3) -> bool {
 }
 
 intersects :: (aabb: AABB3, triangle: Triangle3) -> bool {
-    // realtime physics, p. 171
-    p0: float = ---;
-    p2: float = ---;
-    r: float = ---;
+    // Realtime Collision Detection, §5.2.8 (triangle vs. box via SAT)
 
-    // compute box center and extents (if not already given in that format)
-    c: Vector3 = (aabb.lower + aabb.upper) * 0.5;
-    e0: float = (aabb.upper.x - aabb.lower.x) * 0.5;
-    e1: float = (aabb.upper.y - aabb.lower.y) * 0.5;
-    e2: float = (aabb.upper.z - aabb.lower.z) * 0.5;
+    p0: float = 0.0;
+    p1: float = 0.0;
+    p2: float = 0.0;
+    r : float = 0.0;
 
-    // translate triangle as conceptually moving AABB to origin
-    v0: Vector3 = triangle.a - c;
-    v1: Vector3 = triangle.b - c;
-    v2: Vector3 = triangle.c - c;
+    // box center & extents
+    c : Vector3 = (aabb.lower + aabb.upper) * 0.5;
+    e0: float   = (aabb.upper.x - aabb.lower.x) * 0.5;
+    e1: float   = (aabb.upper.y - aabb.lower.y) * 0.5;
+    e2: float   = (aabb.upper.z - aabb.lower.z) * 0.5;
 
-    // compute edge vectors for triangle
+    // move triangle so box is at origin
+    v0 := triangle.a - c;
+    v1 := triangle.b - c;
+    v2 := triangle.c - c;
+
+    // triangle edges
     f0 := v1 - v0;
     f1 := v2 - v1;
     f2 := v0 - v2;
 
-    // test axes a00..a22 (category 3)
-    // test axis a00
-    p0 = v0.z * v1.y - v0.y * v1.z;
-    p2 = v2.z * (v1.y - v0.y) - v2.z * (v1.z - v0.z);
-    r = e1 * abs(f0.z) + e2 * abs(f0.y);
-    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+    minp: float;
+    maxp: float;
 
-    // repeat similar tests for remaining axes a01..a22
-    // test axes a01 and a02
-    p0 = v0.x * v1.z - v0.z * v1.x;
-    p2 = v2.x * (v1.z - v0.z) - v2.z * (v1.x - v0.x);
-    r = e0 * abs(f0.z) + e2 * abs(f0.x);
-    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+    // --- 9 edge-cross-box-axes tests (category 3) ---
 
-    // test axes a10 and a12
-    p0 = v0.z * v1.x - v0.x * v1.z;
-    p2 = v2.z * (v1.x - v0.x) - v2.x * (v1.z - v0.z);
-    r = e0 * abs(f0.z) + e2 * abs(f0.x);
-    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+    // a00 : (0, -f0.z,  f0.y)
+    p0 = v0.z*f0.y - v0.y*f0.z;
+    p1 = v1.z*f0.y - v1.y*f0.z;
+    p2 = v2.z*f0.y - v2.y*f0.z;
+    r  = e1*abs(f0.z) + e2*abs(f0.y);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
 
-    // test axes a20 and a21
-    p0 = v0.y * v1.x - v0.x * v1.y;
-    p2 = v2.y * (v1.x - v0.x) - v2.x * (v1.y - v0.y);
-    r = e0 * abs(f0.y) + e1 * abs(f0.x);
-    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+    // a01 : (0, -f1.z,  f1.y)
+    p0 = v0.z*f1.y - v0.y*f1.z;
+    p1 = v1.z*f1.y - v1.y*f1.z;
+    p2 = v2.z*f1.y - v2.y*f1.z;
+    r  = e1*abs(f1.z) + e2*abs(f1.y);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
 
-    // test axes a22
-    p0 = v0.y * v1.z - v0.z * v1.y;
-    p2 = v2.y * (v1.z - v0.z) - v2.z * (v1.y - v0.y);
-    r = e0 * abs(f0.y) + e1 * abs(f0.x);
-    if max(-max(p0, p2), min(p0, p2)) > r return false; // axis is a separating axis
+    // a02 : (0, -f2.z,  f2.y)
+    p0 = v0.z*f2.y - v0.y*f2.z;
+    p1 = v1.z*f2.y - v1.y*f2.z;
+    p2 = v2.z*f2.y - v2.y*f2.z;
+    r  = e1*abs(f2.z) + e2*abs(f2.y);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
 
-    // test the three axes corresponding to the face normals of AABB b (category 1).
-    // exit if...
-    // ... [-e0, e0] and [min(v0.x,v1.x,v2.x), max(v0.x,v1.x,v2.x)] do not overlap
-    if max(v0.x, v1.x, v2.x) < -e0 || min(v0.x, v1.x, v2.x) > e0
-        return false;
-    // ... [-e1, e1] and [min(v0.y,v1.y,v2.y), max(v0.y,v1.y,v2.y)] do not overlap
-    if max(v0.y, v1.y, v2.y) < -e1 || min(v0.y, v1.y, v2.y) > e1
-        return false;
-    // ... [-e2, e2] and [min(v0.z,v1.z,v2.z), max(v0.z,v1.z,v2.z)] do not overlap
-    if max(v0.z, v1.z, v2.z) < -e2 || min(v0.z, v1.z, v2.z) > e2
-        return false;
+    // a10 : ( f0.z, 0, -f0.x)
+    p0 = v0.x*f0.z - v0.z*f0.x;
+    p1 = v1.x*f0.z - v1.z*f0.x;
+    p2 = v2.x*f0.z - v2.z*f0.x;
+    r  = e0*abs(f0.z) + e2*abs(f0.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
 
-    // test separating axis corresponding to triangle face normal (category 2)
-    plane: Plane3 = ---;
-    plane.normal = cross(f0, f1);
-    plane.d = dot(plane.normal, v0);
+    // a11 : ( f1.z, 0, -f1.x)
+    p0 = v0.x*f1.z - v0.z*f1.x;
+    p1 = v1.x*f1.z - v1.z*f1.x;
+    p2 = v2.x*f1.z - v2.z*f1.x;
+    r  = e0*abs(f1.z) + e2*abs(f1.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
 
-    // aabb, plane
-    return inline intersects(aabb, plane);
+    // a12 : ( f2.z, 0, -f2.x)
+    p0 = v0.x*f2.z - v0.z*f2.x;
+    p1 = v1.x*f2.z - v1.z*f2.x;
+    p2 = v2.x*f2.z - v2.z*f2.x;
+    r  = e0*abs(f2.z) + e2*abs(f2.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
+
+    // a20 : (-f0.y, f0.x, 0)
+    p0 = -v0.x*f0.y + v0.y*f0.x;
+    p1 = -v1.x*f0.y + v1.y*f0.x;
+    p2 = -v2.x*f0.y + v2.y*f0.x;
+    r  = e0*abs(f0.y) + e1*abs(f0.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
+
+    // a21 : (-f1.y, f1.x, 0)
+    p0 = -v0.x*f1.y + v0.y*f1.x;
+    p1 = -v1.x*f1.y + v1.y*f1.x;
+    p2 = -v2.x*f1.y + v2.y*f1.x;
+    r  = e0*abs(f1.y) + e1*abs(f1.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
+
+    // a22 : (-f2.y, f2.x, 0)
+    p0 = -v0.x*f2.y + v0.y*f2.x;
+    p1 = -v1.x*f2.y + v1.y*f2.x;
+    p2 = -v2.x*f2.y + v2.y*f2.x;
+    r  = e0*abs(f2.y) + e1*abs(f2.x);
+    minp = min(p0, min(p1, p2));  maxp = max(p0, max(p1, p2));
+    if minp > r || maxp < -r return false;
+
+    // --- AABB face normals (category 1) ---
+    vmaxx := max(v0.x, max(v1.x, v2.x));  vminx := min(v0.x, min(v1.x, v2.x));
+    if vmaxx < -e0 || vminx > e0 return false;
+
+    vmaxy := max(v0.y, max(v1.y, v2.y));  vminy := min(v0.y, min(v1.y, v2.y));
+    if vmaxy < -e1 || vminy > e1 return false;
+
+    vmaxz := max(v0.z, max(v1.z, v2.z));  vminz := min(v0.z, min(v1.z, v2.z));
+    if vmaxz < -e2 || vminz > e2 return false;
+
+    // --- triangle plane (category 2) ---
+    n := cross(f0, f1);
+    d := dot(n, v0);                              // plane: n·x = d in the translated frame
+    r = e0*abs(n.x) + e1*abs(n.y) + e2*abs(n.z);  // box radius in direction n
+    if abs(d) > r return false;
+
+    return true;
 }
 
 intersection :: (aabb: AABB2, ray: Ray2) -> Vector2, bool {
@@ -1937,14 +1983,14 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
             t1, t2 = t2, t1;
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > << t {
-            << t = t1;
+        if t1 > t.* {
+            t.* = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if << t > tmax {
+        if t.* > tmax {
             return .{0, 0}, false;
         }
     }
@@ -1963,19 +2009,19 @@ intersection :: (aabb: AABB2, ray: Ray2, t: *float) -> Vector2, bool {
             t1, t2 = t2, t1;
         }
         // Compute the intersection of slab intersection intervals
-        if t1 > << t {
-            << t = t1;
+        if t1 > t.* {
+            t.* = t1;
         }
         if t2 > tmax {
             tmax = t2;
         }
         // Exit with no collision as soon as slab intersection becomes empty
-        if << t > tmax {
+        if t.* > tmax {
             return .{0, 0}, false;
         }
     }
     // Ray intersects all 3 slabs. Return point (q) and intersection t value (tmin)
-    return ray.p + ray.dir * << t, true;
+    return ray.p + ray.dir * t.*, true;
 }
 
 intersection :: (aabb: AABB3, ray: Ray3, tmin: *float) -> Vector3, bool {
@@ -1987,7 +2033,7 @@ intersection :: (aabb: AABB3, ray: Ray3, tmin: *float) -> Vector3, bool {
     amin := aabb.lower.component;
     amax := aabb.upper.component;
 
-    << tmin = 0;
+    tmin.* = 0;
     tmax := FLOAT32_MAX;
 
     for i: 0..2 {
@@ -2003,17 +2049,17 @@ intersection :: (aabb: AABB3, ray: Ray3, tmin: *float) -> Vector3, bool {
                 t1, t2 = t2, t1;
             }
 
-            << tmin = max(<< tmin, t1);
+            tmin.* = max(tmin.*, t1);
             tmax = min(tmax, t2);
         }
     }
 
-    if tmax < (<< tmin) {
+    if tmax < (tmin.*) {
         return .{}, false;
     }
 
     // ray intersects all 3 slabs
-    q := ray.p + ray.dir * (<< tmin);
+    q := ray.p + ray.dir * (tmin.*);
     return q, true;
 }
 
@@ -2423,6 +2469,10 @@ operator == :: (a: Triangle3, b: Triangle3) -> bool {
 }
 
 get_normal :: (triangle: Triangle3) -> Vector3 {
+    return normalize(cross(triangle.b - triangle.a, triangle.c - triangle.a));
+}
+
+get_normal :: (triangle: Triangle3_64) -> Vector3_64 {
     return normalize(cross(triangle.b - triangle.a, triangle.c - triangle.a));
 }
 
@@ -2930,8 +2980,8 @@ intersection :: (line1: Line2, line2: Line2, t: *float) -> Vector2, bool {
             // t = h1 / (h1 - h2) = (b*h1/2) / (b*h1/2 - b*h2/2) = a3 / (a3 - a4),
             // where b (the base of the triangles cda and cdb, i.e., the length
             // of cd) cancels out.
-            << t = a3 / (a3 - a4);
-            point := line1.p1 + << t * (line1.p2 - line1.p1);
+            t.* = a3 / (a3 - a4);
+            point := line1.p1 + t.* * (line1.p2 - line1.p1);
 
             return point, true;
         }
@@ -3189,6 +3239,23 @@ transform_point :: (m: Matrix3, v: Vector2) -> Vector2 {
     result: Vector2 = ---;
     result.x = m._11 * v.x + m._12 * v.y + m._13;
     result.y = m._21 * v.x + m._22 * v.y + m._23;
+    return result;
+}
+
+rotate :: (m: Matrix3, radians: float) -> Matrix3 {
+    result := m;
+
+    c := cos(radians);
+    s := sin(radians);
+
+    result._11 = c * m._11 - s * m._21;
+    result._12 = c * m._12 - s * m._22;
+    result._13 = c * m._13 - s * m._23;
+
+    result._21 = s * m._11 + c * m._21;
+    result._22 = s * m._12 + c * m._22;
+    result._23 = s * m._13 + c * m._23;
+
     return result;
 }
 
@@ -3681,6 +3748,13 @@ hermite :: (points: [2] Vector3, tangents: [2] Vector3, t: float) -> Vector3 {
     n4 := t * t * t - t * t;
 
     return n1 * points[0] + n2 * tangents[0] + n3 * points[1] + n4 * tangents[1];
+}
+
+hermite_approximate_length :: (points: [2] Vector3, tangents: [2] Vector3) -> float {
+    // p0_1 := points[1] - points[0];
+    // t0_strength := cross(
+
+    return distance(points[0], points[1]) + length(tangents[1] - tangents[0]);
 }
 
 hermite :: (points: [3] Vector3, tangents: [3] Vector3, t: float) -> Vector3 {
@@ -4258,6 +4332,14 @@ ease_in_out :: (t: float) -> float {
         p := -2 * t + 2;
         return 1 - p * p / 2;
     }
+}
+
+ease_in :: (t: float) -> float {
+    return t * t;
+}
+
+ease_out :: (t: float) -> float {
+    return -t * (t - 2.0);
 }
 
 undo_ease_in_out :: (v: float) -> float {
