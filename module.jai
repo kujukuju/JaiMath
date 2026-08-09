@@ -105,10 +105,6 @@ create_sphere :: (p1: Vector3, p2: Vector3, p3: Vector3, p4: Vector3) -> Sphere,
     return Sphere.{center, radius}, true;
 }
 
-#run {
-
-};
-
 AABB2 :: struct {
     lower: Vector2;
     upper: Vector2;
@@ -973,9 +969,123 @@ overlap :: (a: [] Vector2, b: [] Vector2) -> Vector2, bool {
     return resolution, true;
 }
 
+create_convex_polygon_from_points :: (points: [] Vector2) -> [] Vector2 {
+    #import "Sort";
+
+    cross_from :: (a: Vector2, b: Vector2, c: Vector2) -> float {
+        // Standard 2D cross of (b - a) x (c - a)
+        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    }
+
+    if points.count <= 1 {
+        return array_copy(points,, temp);
+    }
+
+    sorted := array_copy(points,, temp);
+    quick_sort(sorted, (a: Vector2, b: Vector2) -> s32 {
+        if a.x < b.x return -1;
+        if a.x > b.x return  1;
+        if a.y < b.y return -1;
+        if a.y > b.y return  1;
+        return 0;
+    });
+
+    hull: [..] Vector2;
+    hull.allocator = temp;
+
+    // Pre-allocate capacity, but start with an empty logical count.
+    array_resize(*hull, sorted.count * 2);
+    hull.count = 0;
+
+    // Build lower hull
+    for i: 0..sorted.count - 1 {
+        p := sorted[i];
+        while hull.count >= 2 && cross_from(hull[hull.count - 2], hull[hull.count - 1], p) <= 0 {
+            hull.count -= 1;
+        }
+        hull.count += 1;
+        hull[hull.count - 1] = p;
+    }
+
+    // Build upper hull
+    t := hull.count + 1;
+    for < i: 1..sorted.count - 1 { // descending: sorted.count-1 .. 1
+        p := sorted[i - 1];         // visits sorted.count-2 .. 0
+        while hull.count >= t && cross_from(hull[hull.count - 2], hull[hull.count - 1], p) <= 0 {
+            hull.count -= 1;
+        }
+        hull.count += 1;
+        hull[hull.count - 1] = p;
+    }
+
+    // Remove the duplicate starting point
+    if hull.count > 1 {
+        hull.count -= 1;
+    }
+
+    return hull;
+}
+
+// create_convex_polygon_from_points :: (points: [] Vector2) -> [] Vector2 {
+//     #import "Sort";
+
+//     cross_from :: (a: Vector2, b: Vector2, c: Vector2) -> float {
+//         return (b.y - a.y) * (c.x - a.x) - (b.x - a.x) * (c.y - a.y);
+//     }
+
+//     if points.count <= 3 {
+//         return array_copy(points,, temp);
+//     }
+
+//     sorted := array_copy(points,, temp);
+//     quick_sort(sorted, (a: Vector2, b: Vector2) -> s32 {
+//         if a.x < b.x return -1;
+//         if a.x > b.x return 1;
+//         if a.y < b.y return -1;
+//         if a.x > b.y return 1;
+//         return 0;
+//     });
+
+//     hull: [..] Vector2;
+//     hull.allocator = temp;
+//     array_resize(*hull, points.count * 2);
+
+//     k := 0;
+
+//     // building lower hull
+//     for i: 0..points.count - 1 {
+//         while k >= 2 && cross_from(hull[k - 2], hull[k - 1], points[i]) <= 0 {
+//             k -= 1;
+//         }
+
+//         hull[k] = points[i];
+//         k += 1;
+//     }
+
+//     t := k + 1;
+//     for < i: 1..points.count - 1 {
+//         while k >= t && cross_from(hull[k - 2], hull[k - 1], points[i - 1]) <= 0 {
+//             k -= 1;
+//         }
+
+//         hull[k] = points[i - 1];
+//         k += 1;
+//     }
+
+//     hull.count = k - 1;
+
+//     // reverse(hull);
+
+//     return hull;
+// }
+
 nearest_point :: (polygon: [] Vector2, point: Vector2) -> Vector2 {
     min_distance_squared := FLOAT32_MAX;
     min_distance_point: Vector2;
+
+    if intersects(polygon, point) {
+        return point;
+    }
 
     for i: 0..polygon.count - 1 {
         line: Line2 = ---;
@@ -992,6 +1102,10 @@ nearest_point :: (polygon: [] Vector2, point: Vector2) -> Vector2 {
     }
 
     return min_distance_point;
+}
+
+nearest_distance_squared :: (polygon: [] Vector2, point: Vector2) -> float {
+    return distance_squared(nearest_point(polygon, point), point);
 }
 
 intersects :: (polygon: [] Vector2, point: Vector2) -> bool {
@@ -1174,6 +1288,8 @@ area :: (polygon: [] Vector3) -> float {
 FixedPolygon :: struct (max_count: int) {
     vertices: [max_count] Vector2;
     count: int;
+
+    #overlay (vertices) points: [max_count] Vector2 = ---;
 }
 
 operator == :: (fixed: FixedPolygon($N), other: FixedPolygon($M)) -> bool {
@@ -1201,10 +1317,24 @@ fixed_polygon :: (vertices: [$N] Vector2, count: int) -> FixedPolygon(N) {
     return fixed;
 }
 
+fixed_polygon :: (vertices: [] Vector2, $N: int) -> FixedPolygon(N) {
+    fixed: FixedPolygon(N);
+    memcpy(fixed.vertices.data, vertices.data, min(fixed.vertices.count, vertices.count) * size_of(Vector2));
+    fixed.count = min(fixed.vertices.count, vertices.count);
+    return fixed;
+}
+
 reverse :: (fixed: *FixedPolygon($N)) {
     for i: 0..fixed.count / 2 - 1 {
         fixed.vertices[i], fixed.vertices[fixed.count - i - 1] = fixed.vertices[fixed.count - i - 1], fixed.vertices[i];
     }
+}
+
+get_view :: (fixed: *FixedPolygon($N)) -> [] Vector2 {
+    view: [] Vector2;
+    view.data = fixed.points.data;
+    view.count = fixed.count;
+    return view;
 }
 
 // TODO wrong name
@@ -2466,6 +2596,14 @@ is_convex :: (a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 // triangle stuff
 operator == :: (a: Triangle3, b: Triangle3) -> bool {
     return a.a == b.a && a.b == b.b && a.c == b.c;
+}
+
+area :: (triangle: Triangle2) -> float {
+    return cross(triangle.c - triangle.a, triangle.c - triangle.b) / 2.0;
+}
+
+perimeter :: (triangle: Triangle2) -> float {
+    return distance(triangle.a, triangle.b) + distance(triangle.b, triangle.c) + distance(triangle.c, triangle.a);;
 }
 
 get_normal :: (triangle: Triangle3) -> Vector3 {
